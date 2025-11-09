@@ -1,0 +1,425 @@
+syntax = "proto3";
+
+option go_package = "github.com/couchbase/goprotostellar/genproto/kv_v1;kv_v1";
+option ruby_package = "Couchbase::Protostellar::Generated::KV::V1";
+option php_namespace = "Couchbase\\Protostellar\\Generated\\KV\\V1";
+option java_package = "com.couchbase.client.protostellar.kv.v1";
+option java_multiple_files = true;
+option csharp_namespace = "Couchbase.Protostellar.KV.V1";
+
+package couchbase.kv.v1;
+
+import "google/rpc/status.proto";
+import "google/protobuf/timestamp.proto";
+
+service KvService {
+  rpc Get(GetRequest) returns (GetResponse) {}
+  rpc GetAndTouch(GetAndTouchRequest) returns (GetAndTouchResponse) {}
+  rpc GetAndLock(GetAndLockRequest) returns (GetAndLockResponse) {}
+  rpc Unlock(UnlockRequest) returns (UnlockResponse) {}
+  rpc Touch(TouchRequest) returns (TouchResponse) {}
+  rpc Exists(ExistsRequest) returns (ExistsResponse) {}
+
+  rpc Insert(InsertRequest) returns (InsertResponse) {}
+  rpc Upsert(UpsertRequest) returns (UpsertResponse) {}
+  rpc Replace(ReplaceRequest) returns (ReplaceResponse) {}
+  rpc Remove(RemoveRequest) returns (RemoveResponse) {}
+  rpc Increment(IncrementRequest) returns (IncrementResponse) {}
+  rpc Decrement(DecrementRequest) returns (DecrementResponse) {}
+  rpc Append(AppendRequest) returns (AppendResponse) {}
+  rpc Prepend(PrependRequest) returns (PrependResponse) {}
+  rpc LookupIn(LookupInRequest) returns (LookupInResponse) {}
+  rpc MutateIn(MutateInRequest) returns (MutateInResponse) {}
+
+  rpc GetAllReplicas(GetAllReplicasRequest)
+      returns (stream GetAllReplicasResponse) {}
+}
+
+enum DurabilityLevel {
+  DURABILITY_LEVEL_MAJORITY = 0;
+  DURABILITY_LEVEL_MAJORITY_AND_PERSIST_TO_ACTIVE = 1;
+  DURABILITY_LEVEL_PERSIST_TO_MAJORITY = 2;
+}
+
+enum CompressionEnabled {
+  COMPRESSION_ENABLED_OPTIONAL = 0;
+  COMPRESSION_ENABLED_ALWAYS = 1;
+}
+
+message LegacyDurabilitySpec {
+  uint32 num_replicated = 1;
+  uint32 num_persisted = 2;
+}
+
+message MutationToken {
+  string bucket_name = 1;
+  uint32 vbucket_id = 2;
+  uint64 vbucket_uuid = 3;
+  uint64 seq_no = 4;
+}
+
+message GetRequest {
+  string bucket_name = 1;
+  string scope_name = 2;
+  string collection_name = 3;
+  string key = 4;
+  repeated string project = 5;
+  optional CompressionEnabled compression = 6;
+}
+
+message GetResponse {
+  oneof content {
+    bytes content_uncompressed = 1;
+    bytes content_compressed = 7;
+  }
+  uint32 content_flags = 6;
+  uint64 cas = 3;
+  google.protobuf.Timestamp expiry = 4;
+  reserved 2, 5;
+}
+
+message GetAndTouchRequest {
+  string bucket_name = 1;
+  string scope_name = 2;
+  string collection_name = 3;
+  string key = 4;
+  oneof expiry {
+    google.protobuf.Timestamp expiry_time = 5;
+    uint32 expiry_secs = 6;
+  }
+  optional CompressionEnabled compression = 7;
+}
+
+message GetAndTouchResponse {
+  oneof content {
+    bytes content_uncompressed = 1;
+    bytes content_compressed = 7;
+  }
+  uint32 content_flags = 6;
+  uint64 cas = 3;
+  google.protobuf.Timestamp expiry = 4;
+  reserved 2, 5;
+}
+
+message GetAndLockRequest {
+  string bucket_name = 1;
+  string scope_name = 2;
+  string collection_name = 3;
+  string key = 4;
+  uint32 lock_time = 5;
+  optional CompressionEnabled compression = 6;
+}
+
+message GetAndLockResponse {
+  oneof content {
+    bytes content_uncompressed = 1;
+    bytes content_compressed = 7;
+  }
+  uint32 content_flags = 6;
+  uint64 cas = 3;
+  google.protobuf.Timestamp expiry = 4;
+  reserved 2, 5;
+}
+
+message UnlockRequest {
+  string bucket_name = 1;
+  string scope_name = 2;
+  string collection_name = 3;
+  string key = 4;
+  uint64 cas = 5;
+}
+
+message UnlockResponse {}
+
+message TouchRequest {
+  string bucket_name = 1;
+  string scope_name = 2;
+  string collection_name = 3;
+  string key = 4;
+  oneof expiry {
+    google.protobuf.Timestamp expiry_time = 5;
+    uint32 expiry_secs = 6;
+  }
+}
+
+message TouchResponse {
+  uint64 cas = 1;
+  MutationToken mutation_token = 2;
+}
+
+message ExistsRequest {
+  string bucket_name = 1;
+  string scope_name = 2;
+  string collection_name = 3;
+  string key = 4;
+}
+
+message ExistsResponse {
+  bool result = 1;
+  uint64 cas = 2;
+}
+
+message InsertRequest {
+  string bucket_name = 1;
+  string scope_name = 2;
+  string collection_name = 3;
+  string key = 4;
+  oneof content {
+    bytes content_uncompressed = 5;
+    bytes content_compressed = 12;
+  }
+  uint32 content_flags = 11;
+  oneof expiry {
+    google.protobuf.Timestamp expiry_time = 7;
+    uint32 expiry_secs = 10;
+  }
+  optional DurabilityLevel durability_level = 9;
+  reserved 6;
+}
+
+message InsertResponse {
+  uint64 cas = 1;
+  MutationToken mutation_token = 2;
+}
+
+message UpsertRequest {
+  string bucket_name = 1;
+  string scope_name = 2;
+  string collection_name = 3;
+  string key = 4;
+  oneof content {
+    bytes content_uncompressed = 5;
+    bytes content_compressed = 13;
+  }
+  uint32 content_flags = 11;
+  oneof expiry {
+    google.protobuf.Timestamp expiry_time = 7;
+    uint32 expiry_secs = 10;
+  }
+  optional bool preserve_expiry_on_existing = 12;
+  optional DurabilityLevel durability_level = 9;
+  reserved 6;
+}
+
+message UpsertResponse {
+  uint64 cas = 1;
+  MutationToken mutation_token = 2;
+}
+
+message ReplaceRequest {
+  string bucket_name = 1;
+  string scope_name = 2;
+  string collection_name = 3;
+  string key = 4;
+  oneof content {
+    bytes content_uncompressed = 5;
+    bytes content_compressed = 13;
+  }
+  uint32 content_flags = 12;
+  optional uint64 cas = 7;
+  oneof expiry {
+    google.protobuf.Timestamp expiry_time = 8;
+    uint32 expiry_secs = 11;
+  }
+  optional DurabilityLevel durability_level = 10;
+  reserved 6;
+}
+
+message ReplaceResponse {
+  uint64 cas = 1;
+  MutationToken mutation_token = 2;
+}
+
+message RemoveRequest {
+  string bucket_name = 1;
+  string scope_name = 2;
+  string collection_name = 3;
+  string key = 4;
+  optional uint64 cas = 5;
+  optional DurabilityLevel durability_level = 7;
+}
+
+message RemoveResponse {
+  uint64 cas = 1;
+  MutationToken mutation_token = 2;
+}
+
+message IncrementRequest {
+  string bucket_name = 1;
+  string scope_name = 2;
+  string collection_name = 3;
+  string key = 4;
+  uint64 delta = 5;
+  oneof expiry {
+    google.protobuf.Timestamp expiry_time = 6;
+    uint32 expiry_secs = 10;
+  }
+  optional int64 initial = 7;
+  optional DurabilityLevel durability_level = 9;
+}
+
+message IncrementResponse {
+  uint64 cas = 1;
+  int64 content = 2;
+  MutationToken mutation_token = 3;
+}
+
+message DecrementRequest {
+  string bucket_name = 1;
+  string scope_name = 2;
+  string collection_name = 3;
+  string key = 4;
+  uint64 delta = 5;
+  oneof expiry {
+    google.protobuf.Timestamp expiry_time = 6;
+    uint32 expiry_secs = 10;
+  }
+  optional int64 initial = 7;
+  optional DurabilityLevel durability_level = 9;
+}
+
+message DecrementResponse {
+  uint64 cas = 1;
+  int64 content = 2;
+  MutationToken mutation_token = 3;
+}
+
+message AppendRequest {
+  string bucket_name = 1;
+  string scope_name = 2;
+  string collection_name = 3;
+  string key = 4;
+  bytes content = 5;
+  optional uint64 cas = 6;
+  optional DurabilityLevel durability_level = 8;
+}
+
+message AppendResponse {
+  uint64 cas = 1;
+  MutationToken mutation_token = 2;
+}
+
+message PrependRequest {
+  string bucket_name = 1;
+  string scope_name = 2;
+  string collection_name = 3;
+  string key = 4;
+  bytes content = 5;
+  optional uint64 cas = 6;
+  optional DurabilityLevel durability_level = 8;
+}
+
+message PrependResponse {
+  uint64 cas = 1;
+  MutationToken mutation_token = 2;
+}
+
+message LookupInRequest {
+  string bucket_name = 1;
+  string scope_name = 2;
+  string collection_name = 3;
+  string key = 4;
+
+  message Spec {
+    enum Operation {
+      OPERATION_GET = 0;
+      OPERATION_EXISTS = 1;
+      OPERATION_COUNT = 2;
+    }
+    Operation operation = 1;
+
+    string path = 2;
+
+    message Flags { optional bool xattr = 1; }
+    optional Flags flags = 3;
+  }
+
+  repeated Spec specs = 5;
+
+  message Flags { optional bool access_deleted = 1; }
+  optional Flags flags = 6;
+}
+
+message LookupInResponse {
+  message Spec {
+    google.rpc.Status status = 1;
+    bytes content = 2;
+  }
+  repeated Spec specs = 1;
+
+  uint64 cas = 2;
+}
+
+message MutateInRequest {
+  string bucket_name = 1;
+  string scope_name = 2;
+  string collection_name = 3;
+  string key = 4;
+
+  message Spec {
+    enum Operation {
+      OPERATION_INSERT = 0;
+      OPERATION_UPSERT = 1;
+      OPERATION_REPLACE = 2;
+      OPERATION_REMOVE = 3;
+      OPERATION_ARRAY_APPEND = 4;
+      OPERATION_ARRAY_PREPEND = 5;
+      OPERATION_ARRAY_INSERT = 6;
+      OPERATION_ARRAY_ADD_UNIQUE = 7;
+      OPERATION_COUNTER = 8;
+    }
+    Operation operation = 1;
+
+    string path = 2;
+    bytes content = 3;
+
+    message Flags {
+      optional bool create_path = 1;
+      optional bool xattr = 2;
+    }
+    optional Flags flags = 4;
+  }
+
+  repeated Spec specs = 5;
+
+  enum StoreSemantic {
+    STORE_SEMANTIC_REPLACE = 0;
+    STORE_SEMANTIC_UPSERT = 1;
+    STORE_SEMANTIC_INSERT = 2;
+  }
+  optional StoreSemantic store_semantic = 6;
+
+  optional DurabilityLevel durability_level = 8;
+
+  optional uint64 cas = 9;
+
+  message Flags { optional bool access_deleted = 1; }
+  optional Flags flags = 10;
+
+  oneof expiry {
+    google.protobuf.Timestamp expiry_time = 11;
+    uint32 expiry_secs = 12;
+  }
+}
+
+message MutateInResponse {
+  message Spec { optional bytes content = 1; }
+  repeated Spec specs = 1;
+
+  uint64 cas = 2;
+  MutationToken mutation_token = 3;
+}
+
+message GetAllReplicasRequest {
+  string bucket_name = 1;
+  string scope_name = 2;
+  string collection_name = 3;
+  string key = 4;
+}
+
+message GetAllReplicasResponse {
+  bool is_replica = 1;
+  bytes content = 2;
+  uint32 content_flags = 3;
+  uint64 cas = 4;
+}

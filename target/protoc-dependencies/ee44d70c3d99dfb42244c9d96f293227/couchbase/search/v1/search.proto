@@ -1,0 +1,377 @@
+syntax = "proto3";
+
+option go_package = "github.com/couchbase/goprotostellar/genproto/search_v1;search_v1";
+option ruby_package = "Couchbase::Protostellar::Generated::Search::V1";
+option php_namespace = "Couchbase\\Protostellar\\Generated\\Search\\V1";
+option java_package = "com.couchbase.client.protostellar.search.v1";
+option java_multiple_files = true;
+option csharp_namespace = "Couchbase.Protostellar.Search.V1";
+
+package couchbase.search.v1;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+message BooleanFieldQuery {
+  optional float boost = 1;
+  optional string field = 2;
+  bool value = 6;
+}
+
+message BooleanQuery {
+  optional float boost = 1;
+  optional ConjunctionQuery must = 2;
+  optional DisjunctionQuery must_not = 3;
+  optional DisjunctionQuery should = 4;
+}
+
+message ConjunctionQuery {
+  optional float boost = 1;
+  repeated Query queries = 2;
+}
+
+message DateRangeQuery {
+  optional float boost = 1;
+  optional string field = 2;
+  optional string date_time_parser = 3;
+  optional string start_date = 4;
+  optional string end_date = 5;
+}
+
+message DisjunctionQuery {
+  optional float boost = 1;
+  repeated Query queries = 2;
+  optional uint32 minimum = 3;
+}
+
+message DocIdQuery {
+  optional float boost = 1;
+  repeated string ids = 3;
+}
+
+message LatLng {
+  double latitude = 1;
+  double longitude = 2;
+}
+
+message GeoBoundingBoxQuery {
+  optional float boost = 1;
+  optional string field = 2;
+  LatLng top_left = 3;
+  LatLng bottom_right = 4;
+}
+
+message GeoDistanceQuery {
+  optional float boost = 1;
+  optional string field = 2;
+  LatLng center = 3;
+  string distance = 4;
+}
+
+message GeoPolygonQuery {
+  optional float boost = 1;
+  optional string field = 2;
+  repeated LatLng vertices = 3;
+}
+
+message MatchAllQuery {}
+
+message MatchNoneQuery {}
+
+message MatchPhraseQuery {
+  optional float boost = 1;
+  optional string field = 2;
+  string phrase = 3;
+  optional string analyzer = 4;
+}
+
+message MatchQuery {
+  enum Operator {
+    OPERATOR_OR = 0;
+    OPERATOR_AND = 1;
+  }
+
+  optional float boost = 1;
+  optional string field = 2;
+  string value = 3;
+  optional string analyzer = 4;
+  optional uint64 fuzziness = 5;
+  optional Operator operator = 6;
+  optional uint64 prefix_length = 7;
+}
+
+message NumericRangeQuery {
+  optional float boost = 1;
+  optional string field = 2;
+  optional float min = 3;
+  optional float max = 4;
+  optional bool inclusive_min = 5;
+  optional bool inclusive_max = 6;
+}
+
+message PhraseQuery {
+  optional float boost = 1;
+  optional string field = 2;
+  repeated string terms = 3;
+}
+
+message PrefixQuery {
+  optional float boost = 1;
+  optional string field = 2;
+  string prefix = 3;
+}
+
+message QueryStringQuery {
+  optional float boost = 1;
+  string query_string = 3;
+}
+
+message RegexpQuery {
+  optional float boost = 1;
+  optional string field = 2;
+  string regexp = 3;
+}
+
+message TermQuery {
+  optional float boost = 1;
+  optional string field = 2;
+  string term = 3;
+  optional uint64 fuzziness = 4;
+  optional uint64 prefix_length = 5;
+}
+
+message TermRangeQuery {
+  optional float boost = 1;
+  optional string field = 2;
+  optional string min = 5;
+  optional string max = 6;
+  optional bool inclusive_min = 7;
+  optional bool inclusive_max = 8;
+}
+
+message WildcardQuery {
+  optional float boost = 1;
+  optional string field = 2;
+  string wildcard = 3;
+}
+
+message Query {
+  oneof query {
+    BooleanFieldQuery boolean_field_query = 1;
+    BooleanQuery boolean_query = 2;
+    ConjunctionQuery conjunction_query = 3;
+    DateRangeQuery date_range_query = 4;
+    DisjunctionQuery disjunction_query = 5;
+    DocIdQuery doc_id_query = 6;
+    GeoBoundingBoxQuery geo_bounding_box_query = 7;
+    GeoDistanceQuery geo_distance_query = 8;
+    GeoPolygonQuery geo_polygon_query = 9;
+    MatchAllQuery match_all_query = 10;
+    MatchNoneQuery match_none_query = 11;
+    MatchPhraseQuery match_phrase_query = 12;
+    MatchQuery match_query = 13;
+    NumericRangeQuery numeric_range_query = 14;
+    PhraseQuery phrase_query = 15;
+    PrefixQuery prefix_query = 16;
+    QueryStringQuery query_string_query = 17;
+    RegexpQuery regexp_query = 18;
+    TermQuery term_query = 19;
+    TermRangeQuery term_range_query = 20;
+    WildcardQuery wildcard_query = 21;
+  }
+}
+
+message FieldSorting {
+  string field = 1;
+  bool descending = 2;
+  string missing = 3;
+  string mode = 4;
+  string type = 5;
+}
+
+message GeoDistanceSorting {
+  string field = 1;
+  bool descending = 2;
+  LatLng center = 3;
+  string unit = 4;
+}
+
+message IdSorting { bool descending = 1; }
+
+message ScoreSorting { bool descending = 1; }
+
+message Sorting {
+  oneof sorting {
+    FieldSorting field_sorting = 1;
+    GeoDistanceSorting geo_distance_sorting = 2;
+    IdSorting id_sorting = 3;
+    ScoreSorting score_sorting = 4;
+  }
+}
+
+message DateRange {
+  string name = 1;
+  optional string start = 2;
+  optional string end = 3;
+}
+
+message DateRangeFacet {
+  string field = 1;
+  uint32 size = 2;
+  repeated DateRange date_ranges = 3;
+}
+
+message NumericRange {
+  string name = 1;
+  optional float min = 2;
+  optional float max = 3;
+}
+
+message NumericRangeFacet {
+  string field = 1;
+  uint32 size = 2;
+  repeated NumericRange numeric_ranges = 3;
+}
+
+message TermFacet {
+  string field = 1;
+  uint32 size = 2;
+}
+
+message Facet {
+  oneof facet {
+    DateRangeFacet date_range_facet = 1;
+    NumericRangeFacet numeric_range_facet = 2;
+    TermFacet term_facet = 3;
+  }
+}
+
+service SearchService {
+  rpc SearchQuery(SearchQueryRequest) returns (stream SearchQueryResponse) {}
+}
+
+message SearchQueryRequest {
+  string index_name = 1;
+  Query query = 2;
+
+  enum ScanConsistency { SCAN_CONSISTENCY_NOT_BOUNDED = 0; }
+  ScanConsistency scan_consistency = 3;
+  uint32 limit = 4;
+  uint32 skip = 5;
+  bool include_explanation = 6;
+
+  enum HighlightStyle {
+    HIGHLIGHT_STYLE_DEFAULT = 0;
+    HIGHLIGHT_STYLE_HTML = 1;
+    HIGHLIGHT_STYLE_ANSI = 2;
+  }
+  HighlightStyle highlight_style = 7;
+  repeated string highlight_fields = 8;
+  repeated string fields = 9;
+  repeated Sorting sort = 10;
+  bool disable_scoring = 11;
+  repeated string collections = 12;
+  bool include_locations = 13;
+  map<string, Facet> facets = 14;
+
+  optional string bucket_name = 15;
+  optional string scope_name = 16;
+}
+
+message SearchQueryResponse {
+  message SearchQueryRow {
+    string id = 1;
+    double score = 2;
+    string index = 3;
+    bytes explanation = 4;
+    repeated Location locations = 5;
+    map<string, Fragment> fragments = 6;
+    map<string, bytes> fields = 7;
+  }
+
+  message Location {
+    string field = 1;
+    string term = 2;
+    uint32 position = 3;
+    uint32 start = 4;
+    uint32 end = 5;
+    repeated uint32 array_positions = 6; 
+  }
+
+  message Fragment {
+    repeated string content = 1;
+  }
+
+  message FacetResult {
+    oneof search_facet {
+      TermFacetResult term_facet = 1;
+      DateRangeFacetResult date_range_facet = 2;
+      NumericRangeFacetResult numeric_range_facet = 3;
+    }
+  }
+
+  message TermResult {
+    string name = 1;
+    string field = 2;
+    uint64 size = 3;
+  }
+
+  message TermFacetResult {
+    reserved 1;
+    string field = 2;
+    int64 total = 3;
+    int64 missing = 4;
+    int64 other = 5;
+    repeated TermResult terms = 6;
+  }
+
+  message DateRangeResult {
+    string name = 1;
+    uint64 size = 2;
+    google.protobuf.Timestamp start = 3;
+    google.protobuf.Timestamp end = 4;
+  }
+
+  message DateRangeFacetResult {
+    reserved 1;
+    string field = 2;
+    int64 total = 3;
+    int64 missing = 4;
+    int64 other = 5;
+    repeated DateRangeResult date_ranges = 6;
+  }
+
+  message NumericRangeResult{
+    string name = 1;
+    uint64 size = 2;
+    uint64 min = 3;
+    uint64 max = 4;
+  }
+
+  message NumericRangeFacetResult{
+    reserved 1;
+    string field = 2;
+    int64 total = 3;
+    int64 missing = 4;
+    int64 other = 5;
+    repeated NumericRangeResult numeric_ranges = 6;
+  }
+
+  message MetaData {
+    SearchMetrics metrics = 1;
+    map<string, string> errors = 2;
+  }
+
+  message SearchMetrics {
+    google.protobuf.Duration execution_time = 1;
+    uint64 total_rows = 2;
+    double max_score = 3;
+    uint64 total_partition_count = 4;
+    uint64 success_partition_count = 5;
+    uint64 error_partition_count = 6;
+  }
+
+  repeated SearchQueryRow hits = 1;
+  map<string, FacetResult> facets = 2;
+  optional MetaData meta_data = 3;
+}

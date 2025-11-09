@@ -1,0 +1,104 @@
+syntax = "proto3";
+
+option go_package = "github.com/couchbase/goprotostellar/genproto/admin_bucket_v1;admin_bucket_v1";
+option ruby_package = "Couchbase::Protostellar::Generated::Admin::Bucket::V1";
+option php_namespace = "Couchbase\\Protostellar\\Generated\\Admin\\Bucket\\V1";
+option java_package = "com.couchbase.client.protostellar.admin.bucket.v1";
+option java_multiple_files = true;
+option csharp_namespace = "Couchbase.Protostellar.Admin.Bucket.V1";
+
+package couchbase.admin.bucket.v1;
+
+import "couchbase/kv/v1/kv.proto";
+
+service BucketAdminService {
+  rpc ListBuckets(ListBucketsRequest) returns (ListBucketsResponse) {}
+
+  rpc CreateBucket(CreateBucketRequest) returns (CreateBucketResponse) {}
+  rpc UpdateBucket(UpdateBucketRequest) returns (UpdateBucketResponse) {}
+  rpc DeleteBucket(DeleteBucketRequest) returns (DeleteBucketResponse) {}
+}
+
+enum BucketType {
+  BUCKET_TYPE_COUCHBASE = 0;
+  BUCKET_TYPE_EPHEMERAL = 1;
+}
+
+enum EvictionMode {
+  EVICTION_MODE_FULL = 0;
+  EVICTION_MODE_NOT_RECENTLY_USED = 1;
+  EVICTION_MODE_VALUE_ONLY = 2;
+  EVICTION_MODE_NONE = 3;
+}
+
+enum CompressionMode {
+  COMPRESSION_MODE_OFF = 0;
+  COMPRESSION_MODE_PASSIVE = 1;
+  COMPRESSION_MODE_ACTIVE = 2;
+}
+
+enum StorageBackend {
+  STORAGE_BACKEND_COUCHSTORE = 0;
+  STORAGE_BACKEND_MAGMA = 1;
+}
+
+enum ConflictResolutionType {
+  CONFLICT_RESOLUTION_TYPE_TIMESTAMP = 0;
+  CONFLICT_RESOLUTION_TYPE_SEQUENCE_NUMBER = 1;
+  CONFLICT_RESOLUTION_TYPE_CUSTOM = 2;
+}
+
+message ListBucketsRequest {}
+
+message ListBucketsResponse {
+  message Bucket {
+    string bucket_name = 1;
+    bool flush_enabled = 2;
+    uint64 ram_quota_mb = 3;
+    uint32 num_replicas = 4;
+    bool replica_indexes = 5;
+    BucketType bucket_type = 6;
+    EvictionMode eviction_mode = 7;
+    uint32 max_expiry_secs = 8;
+    CompressionMode compression_mode = 9;
+    optional couchbase.kv.v1.DurabilityLevel minimum_durability_level = 10;
+    optional StorageBackend storage_backend = 11;
+    ConflictResolutionType conflict_resolution_type = 12;
+  }
+
+  repeated Bucket buckets = 1;
+}
+
+message CreateBucketRequest {
+  string bucket_name = 1;
+  BucketType bucket_type = 2;
+  optional uint64 ram_quota_mb = 3;
+  optional uint32 num_replicas = 4;
+  optional bool flush_enabled = 5;
+  optional bool replica_indexes = 6;
+  optional EvictionMode eviction_mode = 7;
+  optional uint32 max_expiry_secs = 8;
+  optional CompressionMode compression_mode = 9;
+  optional couchbase.kv.v1.DurabilityLevel minimum_durability_level = 10;
+  optional StorageBackend storage_backend = 11;
+  optional ConflictResolutionType conflict_resolution_type = 12;
+}
+
+message CreateBucketResponse { string bucket_uuid = 1; }
+
+message UpdateBucketRequest {
+  string bucket_name = 1;
+  optional uint64 ram_quota_mb = 2;
+  optional uint32 num_replicas = 3;
+  optional bool flush_enabled = 4;
+  optional EvictionMode eviction_mode = 5;
+  optional uint32 max_expiry_secs = 6;
+  optional CompressionMode compression_mode = 7;
+  optional couchbase.kv.v1.DurabilityLevel minimum_durability_level = 8;
+}
+
+message UpdateBucketResponse {}
+
+message DeleteBucketRequest { string bucket_name = 1; }
+
+message DeleteBucketResponse {}

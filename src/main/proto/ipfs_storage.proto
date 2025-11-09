@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+option java_package = "org.example.memorialbooklet.rpc";
+option java_multiple_files = true;
+
+service IpfsStorageService {
+  rpc UploadFile(stream FileChunk) returns (UploadFileResponse);
+}
+
+// 2. 文件上传的每个数据块
+message FileChunk {
+  // 使用 oneof 字段来区分第一个消息（元数据）和后续消息（数据）
+  oneof payload {
+    FileMetaData metadata = 1; // 仅在第一个 Chunk 中发送
+    bytes data = 2;            // 后续 Chunk 包含文件字节数据
+  }
+}
+
+// 3. 文件元数据（可选，但推荐用于文件名等信息）
+message FileMetaData {
+  string fileName = 1;
+}
+
+// 4. 响应消息
+message UploadFileResponse {
+  string cid = 1;
+  string message = 2; // 用于错误或成功信息
+}

@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  # ==============================
+  # IPFS 节点服务 (用于文件存储)
+  # ==============================
+  ipfs-node:
+    image: ipfs/kubo:latest
+    container_name: ipfs_node
+    # 🚨 确保数据持久化，防止容器重启数据丢失 🚨
+    volumes:
+      - ipfs_data:/data/ipfs
+    ports:
+      - "5001:5001"  # HTTP API 端口 (Spring Boot 应用连接此端口)
+      - "8080:8080"  # Gateway 端口
+      - "4001:4001"  # Swarm (P2P 通信)
+    # 确保在启动时执行初始化命令
+    command: daemon --enable-pubsub-experiment
+
+  # ==============================
+  # Conflux EVM 本地节点 (可选，用于本地测试)
+  # ==============================
+  conflux-node:
+    image: confluxchain/evm_node:latest # 使用 Conflux EVM 兼容的节点
+    container_name: conflux_node
+    ports:
+      - "8545:8545" # Ethereum RPC 端口
+      - "12537:12537" # Conflux Native RPC 端口
+    # 这是一个本地测试节点，通常不需要持久化卷
+    # 如果要连接远程测试网，可以注释掉此服务
+
+# 定义持久化卷
+volumes:
+  ipfs_data:
+  # Docker 会自动管理此卷，保证 IPFS 数据不丢失
