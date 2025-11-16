@@ -28,13 +28,18 @@ public class ConfluxBlockchainServiceImpl implements BlockchainService {
 
     // 初始化区块链客户端和合约（服务启动时执行）
     @Override
-    public void afterPropertiesSet() throws Exception {
+    @javax.annotation.PostConstruct
+    public void initContract() throws Exception {
 
-        Cfx web3j = Cfx.create(new HttpService(confluxRpcUrl));
+        Web3j web3j = Web3j.build(new HttpService(confluxRpcUrl));
 
         Credentials credentials = Credentials.create(privateKey);
-
-        this.contract = CidStorage.load(contractAddress, (Web3j) web3j, credentials, new DefaultGasProvider());
+        this.contract = CidStorage.load(
+                contractAddress,
+                web3j,
+                credentials,
+                new ConfluxTestnetGasProvider()
+        );
     }
 
     @Override
