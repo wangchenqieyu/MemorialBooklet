@@ -2,15 +2,17 @@ package org.example.memorialbooklet.facade;
 
 import org.example.memorialbooklet.dto.UploadFileResponse;
 import org.example.memorialbooklet.ipfs.IpfsService;
+import org.springframework.core.io.InputStreamResource;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 
 @RestController
 // Sets the base path for all methods in this controller
@@ -80,6 +82,42 @@ public class IpfsStorageController {
                     new UploadFileResponse(null, "An unexpected error occurred: " + e.getMessage()),
                     HttpStatus.INTERNAL_SERVER_ERROR
             );
+        }
+    }
+
+
+    @GetMapping(value = "/download/{cid}")
+    public ResponseEntity<InputStreamResource> downloadFile(@PathVariable String cid) {
+        InputStream fileStream;
+        try {
+            // 1. 核心逻辑：从 IPFS 服务获取文件流
+            fileStream = ipfsService.downloadFile(cid);
+
+            // 2. 构造响应头
+            HttpHeaders headers = new HttpHeaders();
+            // 告诉浏览器这是一个附件下载，可以指定文件名 (这里使用 CID 作为文件名)
+            // 实际应用中，您可能需要存储原始文件名
+            headers.setContentDispositionFormData("attachment",
+                    URLEncoder.encode(cid, StandardCharsets.UTF_8));
+            // 设置内容类型为二进制流
+            headers.setContentType(MediaType.APPLICATION_OCTET_STREAM);
+
+            // 3. 将 InputStream 包装成 Spring 的 InputStreamResource
+            InputStreamResource resource = new InputStreamResource(fileStream);
+
+            // 4. 返回 ResponseEntity
+            // 注意：我们不设置 Content-Length，让 Spring 自动处理流的长度。
+            return new ResponseEntity<>(resource, headers, HttpStatus.OK);
+
+        } catch (IOException e) {
+            // 处理文件不存在、连接错误等问题
+            System.err.println("IPFS download error for CID " + cid + ": " + e.getMessage());
+
+            // 检查常见的“文件未找到”错误
+            if (e.getMessage() != null && e.getMessage().contains("object not found")) {
+                return new ResponseEntity<>(HttpStatus.NOT_FOUND); // HTTP 404
+            }
+            return new ResponseEntity<>(HttpStatus.INTERNAL_SERVER_ERROR); // HTTP 500
         }
     }
 }

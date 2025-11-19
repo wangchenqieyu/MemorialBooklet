@@ -1,6 +1,8 @@
 package org.example.memorialbooklet.ipfs;
 
 
+import jnr.ffi.annotations.In;
+
 import java.io.IOException;
 import java.io.InputStream;
 
@@ -9,4 +11,6 @@ import java.io.InputStream;
  */
 public interface IpfsService {
     String uploadFile(InputStream inputStream) throws IOException;
+
+    InputStream downloadFile(String cid) throws IOException;
 }
