@@ -1,10 +1,12 @@
 package org.example.memorialbooklet.pedigree;
 
 import lombok.Getter;
-import org.example.memorialbooklet.pedigree.type.PersonNode;
+import org.example.memorialbooklet.pedigree.mybatis.type.PersonNode;
+import org.springframework.stereotype.Service;
 
 import java.util.*;
 
+@Service
 public class FamilyTreeManager {
     // 存储所有人的节点缓存 (ID -> Node)
     @Getter
@@ -13,10 +15,9 @@ public class FamilyTreeManager {
     // 锚点ID：通常是登录系统的那个用户，以他为 Level 0
     private Long rootUserId;
 
-    public FamilyTreeManager(Long rootUserId) {
-        this.rootUserId = rootUserId;
-        // 初始化把自己加进去
-        addPerson(rootUserId, "我(User)");
+    public void initRootUser(Long id, String name) {
+        this.rootUserId = id;
+        addPerson(id, name);
     }
 
     // 添加节点

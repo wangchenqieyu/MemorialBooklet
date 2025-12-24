@@ -1,9 +1,13 @@
 package org.example.memorialbooklet.blockchain;
 
 import org.example.memorialbooklet.contract.CidStorage;
+import org.example.memorialbooklet.mapper.DigitalLegacyMapper;
+import org.example.memorialbooklet.pedigree.mybatis.type.DigitalLegacyAsset;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.web3j.crypto.Credentials;
+import org.web3j.crypto.Hash;
 import org.web3j.protocol.Web3j;
 import org.web3j.protocol.http.HttpService;
 import org.web3j.tx.gas.DefaultGasProvider;
@@ -24,6 +28,9 @@ public class ConfluxBlockchainServiceImpl implements BlockchainService {
     @Value("${conflux.contract.address}")
     private String contractAddress; // 部署的CID存储合约地址
 
+    @Autowired
+    private DigitalLegacyMapper legacyMapper;
+
     private CidStorage contract; // 合约交互实例
 
     // 初始化区块链客户端和合约（服务启动时执行）
@@ -43,10 +50,17 @@ public class ConfluxBlockchainServiceImpl implements BlockchainService {
     }
 
     @Override
-    public String storeCid(String cid) {
+    public String storeCid(String cid, Long personId) {
         try {
             // 调用合约storeCID方法，返回交易哈希
-            return contract.storeCID(cid).send().getTransactionHash();
+            String contractHashCode =  contract.storeCID(cid).send().getTransactionHash();
+
+            DigitalLegacyAsset asset = new DigitalLegacyAsset();
+            asset.setPersonId(personId);
+            asset.setConfluxCode(contractHashCode);
+            // 回填 Conflux 存证哈希到数据库
+            legacyMapper.updateConfluxCode(asset.getId(), contractHashCode);
+            return contractHashCode;
         } catch (Exception e) {
             throw new RuntimeException("Conflux上链失败", e);
         }

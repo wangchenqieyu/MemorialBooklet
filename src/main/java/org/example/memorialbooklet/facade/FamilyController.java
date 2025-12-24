@@ -2,7 +2,7 @@ package org.example.memorialbooklet.facade;
 
 
 import org.example.memorialbooklet.pedigree.FamilyTreeService;
-import org.example.memorialbooklet.pedigree.type.Person;
+import org.example.memorialbooklet.pedigree.mybatis.type.Person;
 import org.example.memorialbooklet.request.FamilyTreeVO;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -20,8 +20,8 @@ public class FamilyController {
      * POST /api/v1/family/person?name=张三
      */
     @PostMapping("/person")
-    public Person createPerson(@RequestParam String name) {
-        return familyTreeService.createPerson(name);
+    public Person createPerson(@RequestParam String name, @RequestParam String password) {
+        return familyTreeService.createPerson(name, password);
     }
 
     /**

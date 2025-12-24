@@ -1,7 +1,7 @@
 package org.example.memorialbooklet.mapper;
 
 import org.apache.ibatis.annotations.*;
-import org.example.memorialbooklet.pedigree.type.Person;
+import org.example.memorialbooklet.pedigree.mybatis.type.Person;
 
 import java.util.List;
 

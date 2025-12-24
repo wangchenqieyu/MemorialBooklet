@@ -38,7 +38,7 @@ public class IpfsCidCodeChainFacade {
             BlockchainService blockchainService = serviceFactory.getBlockchainService(DEFAULT_CHAIN);
 
             // 2. 调用核心业务逻辑：将 CID 存储到 Conflux 合约
-            String txHash = blockchainService.storeCid(request.getCidCode());
+            String txHash = blockchainService.storeCid(request.getCidCode(), request.getPersonId());
 
             // 3. 返回成功响应
             return new ResponseEntity<>(

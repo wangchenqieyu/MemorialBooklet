@@ -1,4 +1,4 @@
-package org.example.memorialbooklet.pedigree.type;
+package org.example.memorialbooklet.pedigree.mybatis.type;
 
 import lombok.Data;
 // 如果没装 Lombok 插件，请手动生成 Getter/Setter/ToString

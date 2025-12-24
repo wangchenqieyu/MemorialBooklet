@@ -2,7 +2,7 @@ package org.example.memorialbooklet.mapper;
 
 
 import org.apache.ibatis.annotations.*;
-import org.example.memorialbooklet.pedigree.type.Relationship;
+import org.example.memorialbooklet.pedigree.mybatis.type.Relationship;
 
 import java.util.List;
 

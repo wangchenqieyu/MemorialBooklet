@@ -1,4 +1,4 @@
-package org.example.memorialbooklet.pedigree.type;
+package org.example.memorialbooklet.pedigree.mybatis.type;
 
 public enum RelationType {
     FATHER(1),      // 代数 +1

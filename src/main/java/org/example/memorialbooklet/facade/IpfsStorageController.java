@@ -44,7 +44,7 @@ public class IpfsStorageController {
             consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE,
             // Specifies the output type
             produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<UploadFileResponse> uploadFile(InputStream inputStream) {
+    public ResponseEntity<UploadFileResponse> uploadFile(InputStream inputStream, Long personId) throws IOException {
 
         // Basic check for an empty request body
         if (inputStream == null) {
@@ -58,7 +58,7 @@ public class IpfsStorageController {
             // 1. Core Logic: Directly pass the incoming HTTP stream to the IPFS service.
             // This is the equivalent of the separate executor thread in the gRPC version,
             // but managed synchronously by the Spring request handling thread.
-            String cid = ipfsService.uploadFile(inputStream);
+            String cid = ipfsService.uploadFile(inputStream, personId);
 
             UploadFileResponse responseBody = new UploadFileResponse(
                     cid,

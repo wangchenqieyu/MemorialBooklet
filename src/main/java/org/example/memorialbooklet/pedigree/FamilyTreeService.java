@@ -1,10 +1,12 @@
 package org.example.memorialbooklet.pedigree;
 
+import org.example.memorialbooklet.mapper.LoginMapper;
 import org.example.memorialbooklet.mapper.PersonMapper;
 import org.example.memorialbooklet.mapper.RelationshipMapper;
-import org.example.memorialbooklet.pedigree.type.Person;
-import org.example.memorialbooklet.pedigree.type.PersonNode;
-import org.example.memorialbooklet.pedigree.type.Relationship;
+import org.example.memorialbooklet.pedigree.mybatis.type.Login;
+import org.example.memorialbooklet.pedigree.mybatis.type.Person;
+import org.example.memorialbooklet.pedigree.mybatis.type.PersonNode;
+import org.example.memorialbooklet.pedigree.mybatis.type.Relationship;
 import org.example.memorialbooklet.request.FamilyTreeVO;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -20,7 +22,10 @@ public class FamilyTreeService {
     private PersonMapper personMapper;
     @Autowired
     private RelationshipMapper relationshipMapper;
+    @Autowired
+    private LoginMapper loginMapper;
 
+    @Autowired
     // 内存计算引擎
     private FamilyTreeManager treeManager;
 
@@ -63,7 +68,7 @@ public class FamilyTreeService {
     }
 
     @Transactional
-    public Person createPerson(String name) {
+    public Person createPerson(String name, String password) {
         // 1. 构建对象
         Person p = new Person();
         p.setName(name);
@@ -74,6 +79,15 @@ public class FamilyTreeService {
         // 2. 【持久化】存入 MySQL
         // MyBatis 的 insert 方法执行后，会自动把生成的 ID 回填到 p 对象中
         personMapper.insert(p);
+
+        long personId = p.getId();
+
+        Login login = new Login();
+
+        login.setPersonId(personId);
+        login.setPassword(password);
+        loginMapper.insert(login);
+
 
         // 3. 【同步】加入内存计算引擎
         // 这一步非常关键！如果不加，后续调用 addConnection 时，Manager 会报空指针

@@ -4,6 +4,8 @@ import io.ipfs.api.IPFS;
 import io.ipfs.api.MerkleNode;
 import io.ipfs.api.NamedStreamable;
 import io.ipfs.multihash.Multihash;
+import org.example.memorialbooklet.mapper.DigitalLegacyMapper;
+import org.example.memorialbooklet.pedigree.mybatis.type.DigitalLegacyAsset;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import java.io.IOException;
@@ -20,11 +22,14 @@ public class IpfsServiceImpl implements IpfsService {
         this.ipfsClient = factory.createIPFSClient();
     }
 
+    @Autowired
+    private DigitalLegacyMapper legacyMapper;
+
     /**
      * 实现上传文件流到 IPFS
      */
     @Override
-    public String uploadFile(InputStream inputStream) throws IOException {
+    public String uploadFile(InputStream inputStream, Long personId) throws IOException {
         // NamedStreamable.InputStreamWrapper 允许我们直接使用 InputStream
         NamedStreamable.InputStreamWrapper file = new NamedStreamable.InputStreamWrapper(inputStream);
 
@@ -38,7 +43,15 @@ public class IpfsServiceImpl implements IpfsService {
 
         // 返回第一个（通常也是唯一一个）文件的 hash，即 CID
         // toString() 方法将 Multihash 对象转换为 Base58 编码的 CID 字符串
-        return results.getFirst().hash.toString();
+        String ipfsCode =  results.getFirst().hash.toString();
+        DigitalLegacyAsset asset = new DigitalLegacyAsset();
+        asset.setPersonId(personId);
+        asset.setIpfsCode(ipfsCode);
+
+        // 插入数据库
+        legacyMapper.insertIpfsCode(asset);
+
+        return ipfsCode;
     }
 
     @Override

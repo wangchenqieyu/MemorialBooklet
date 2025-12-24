@@ -1,4 +1,4 @@
-package org.example.memorialbooklet.pedigree.type;
+package org.example.memorialbooklet.pedigree.mybatis.type;
 
 import java.util.ArrayList;
 import java.util.List;

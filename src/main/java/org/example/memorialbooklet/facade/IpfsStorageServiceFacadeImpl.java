@@ -38,7 +38,7 @@ public class IpfsStorageServiceFacadeImpl extends org.example.memorialbooklet.rp
         executorService.execute(() -> {
             try (PipedInputStream is = pipedInputStream; PipedOutputStream os = pipedOutputStream) {
 
-                String cid = ipfsService.uploadFile(is);
+                String cid = ipfsService.uploadFile(is, 1L);
 
                 org.example.memorialbooklet.rpc.UploadFileResponse response = org.example.memorialbooklet.rpc.UploadFileResponse.newBuilder()
                         .setCid(cid)
