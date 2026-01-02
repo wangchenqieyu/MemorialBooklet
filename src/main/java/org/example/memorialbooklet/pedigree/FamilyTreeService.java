@@ -3,10 +3,7 @@ package org.example.memorialbooklet.pedigree;
 import org.example.memorialbooklet.mapper.LoginMapper;
 import org.example.memorialbooklet.mapper.PersonMapper;
 import org.example.memorialbooklet.mapper.RelationshipMapper;
-import org.example.memorialbooklet.pedigree.mybatis.type.Login;
-import org.example.memorialbooklet.pedigree.mybatis.type.Person;
-import org.example.memorialbooklet.pedigree.mybatis.type.PersonNode;
-import org.example.memorialbooklet.pedigree.mybatis.type.Relationship;
+import org.example.memorialbooklet.pedigree.mybatis.type.*;
 import org.example.memorialbooklet.request.FamilyTreeVO;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -14,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 public class FamilyTreeService {
@@ -35,19 +33,37 @@ public class FamilyTreeService {
      * 核心业务方法：添加关系 -> 计算 -> 存库
      */
     @Transactional
-    public void addConnection(Long fromId, Long toId, int gap) {
-        // 1. 【持久化】先把“物理关系”存入数据库 (t_relationship)
-        // 这样即使断电，关系也不会丢
+    public void addConnection(Long fromId, Long toId, RelationType type) {
+
+        // 1. (可选) 强校验：检查 toId 的性别是否符合 type 的要求
+        // 比如 type=MOTHER，那么 toId这个人必须是女性
+        Person toPerson = personMapper.selectById(toId);
+        if (toPerson != null) {
+            String currentGender = toPerson.getGender();
+            String requiredGender = type.getTargetGender();
+
+            if (currentGender != null && !currentGender.equals(requiredGender)) {
+                throw new IllegalArgumentException("性别冲突！" +
+                        type.getDescription() + "必须是" + ("1".equals(requiredGender) ? "男性" : "女性"));
+            }
+        }
+
+        // 2. 从枚举中获取【数学代数差】
+        int gap = type.getGenerationGap();
+
+        // 3. 【持久化】存入数据库 (只存物理 gap)
         Relationship rel = new Relationship();
         rel.setFromPersonId(fromId);
         rel.setToPersonId(toId);
         rel.setGenerationGap(gap);
+
+        // 使用之前定义的"覆盖更新"逻辑
         relationshipMapper.insert(rel);
 
-        // 2. 【计算】更新内存中的图结构，触发 BFS 重算层级
+        // 4. 【计算】更新内存图
         treeManager.addRelation(fromId, toId, gap);
 
-        // 3. 【同步】将内存中算好的新层级，回写到数据库 (t_person)
+        // 5. 【同步】回写 Level 到数据库
         syncMemoryToDatabase();
     }
 
@@ -68,13 +84,15 @@ public class FamilyTreeService {
     }
 
     @Transactional
-    public Person createPerson(String name, String password) {
+    public Person createPerson(String name, String password, Integer gender) {
+
         // 1. 构建对象
         Person p = new Person();
         p.setName(name);
         // 新创建的人默认层级为 0 (或者 null，取决于你的业务，这里暂设 0)
         // 等他和别人建立关系后，会自动根据 BFS 算法重算这个值
         p.setLevel(0);
+        p.setGender(gender != null ? String.valueOf(gender) : null);
 
         // 2. 【持久化】存入 MySQL
         // MyBatis 的 insert 方法执行后，会自动把生成的 ID 回填到 p 对象中
@@ -91,12 +109,23 @@ public class FamilyTreeService {
 
         // 3. 【同步】加入内存计算引擎
         // 这一步非常关键！如果不加，后续调用 addConnection 时，Manager 会报空指针
-        treeManager.addPerson(p.getId(), p.getName());
+        treeManager.addPerson(p.getId(), p.getName(), p.getGender());
 
         System.out.println("已创建人员: " + p.getName() + ", ID: " + p.getId());
 
         return p;
     }
+
+    public Person viewPerson(Long personId) {
+        Person p = personMapper.selectById(personId);
+        if (p == null) {
+            throw new IllegalArgumentException("Person not found");
+        }
+
+        treeManager.initRootUser(p.getId(), p.getName(), p.getGender());
+        return p;
+    }
+
 
     /**
      * 删除关系
@@ -117,36 +146,78 @@ public class FamilyTreeService {
         syncMemoryToDatabase();
     }
 
-    /**
-     * 组装前端需要的图数据
-     */
     public FamilyTreeVO getFamilyTreeGraph() {
         FamilyTreeVO vo = new FamilyTreeVO();
-        vo.setRootId(1L); // 假设 1 是系统默认根用户，或者从 Session 获取当前用户
+        vo.setRootId(treeManager.getRootUserId());
 
-        // 1. 获取所有节点 (直接查库，因为库里已经同步了最新的 level)
         List<Person> people = personMapper.selectAll();
-        List<FamilyTreeVO.NodeVO> nodeVOs = people.stream()
-                .map(p -> new FamilyTreeVO.NodeVO(p.getId(), p.getName(), p.getLevel()))
-                .toList();
-        vo.setNodes(nodeVOs);
+        Map<Long, Person> personMap = people.stream()
+                .collect(Collectors.toMap(Person::getId, p -> p));
 
-        // 2. 获取所有边
+        vo.setNodes(people.stream()
+                .map(p -> new FamilyTreeVO.NodeVO(p.getId(), p.getName(), p.getLevel()))
+                .toList());
+
         List<Relationship> relationships = relationshipMapper.selectAll();
         List<FamilyTreeVO.LinkVO> linkVOs = relationships.stream()
-                .map(r -> new FamilyTreeVO.LinkVO(r.getFromPersonId(), r.getToPersonId(), parseGap(r.getGenerationGap())))
+                .map(r -> {
+                    Person targetPerson = personMap.get(r.getToPersonId());
+
+                    // 获取目标性别 (默认为 "1")
+                    String targetGender = (targetPerson != null && targetPerson.getGender() != null)
+                            ? targetPerson.getGender() : "1";
+
+                    String label = parseRelationLabel(r.getGenerationGap(), targetGender);
+
+                    return new FamilyTreeVO.LinkVO(r.getFromPersonId(), r.getToPersonId(), label);
+                })
                 .toList();
         vo.setLinks(linkVOs);
 
         return vo;
     }
 
-    // 辅助显示关系名称
-    private String parseGap(int gap) {
-        if (gap == 1) return "长辈";
-        if (gap == -1) return "晚辈";
-        if (gap == 0) return "配偶/平辈";
-        if (gap == 2) return "祖辈";
-        return "关系";
+    /**
+     * 解析关系标签
+     * 逻辑：A -> B (gap). 标签描述的是 B 相对于 A 的身份。
+     * 例如：我 -> 爸爸 (gap=1). 爸爸是我的"父亲"。
+     *
+     * @param gap 代数差 (正数=长辈, 负数=晚辈)
+     * @param targetGender 目标人物性别 (1=男, 0=女)
+     * @return 关系名称
+     */
+    private String parseRelationLabel(int gap, String targetGender) {
+        // 为了安全，防止 targetGender 为 null，统一处理
+        boolean isMale = "1".equals(targetGender);
+
+        // --- 平辈 (Gap 0) ---
+        if (gap == 0) {
+            return isMale ? "兄弟/丈夫" : "姐妹/妻子";
+        }
+
+        // --- 长辈 (Gap > 0) ---
+        if (gap == 1) {
+            return isMale ? "父亲" : "母亲";
+        }
+        if (gap == 2) {
+            return isMale ? "爷爷/外公" : "奶奶/外婆";
+        }
+        if (gap >= 3) {
+            return isMale ? gap + "世祖" : gap + "世祖母";
+        }
+
+        // --- 晚辈 (Gap < 0) ---
+        if (gap == -1) {
+            return isMale ? "儿子" : "女儿";
+        }
+        if (gap == -2) {
+            return isMale ? "孙子/外孙" : "孙女/外孙女";
+        }
+        if (gap <= -3) {
+            int gen = Math.abs(gap);
+            return isMale ? gen + "世孙" : gen + "世孙女";
+        }
+
+        return "未知关系";
     }
 }

@@ -6,6 +6,7 @@ import java.util.List;
 public class PersonNode {
     private Long id;
     private String name;
+    private String gender;
 
     // 核心字段：相对代数 (0:自己, 1:父亲, -1:孩子, 2:爷爷)
     private int relativeLevel = 0;
@@ -17,9 +18,10 @@ public class PersonNode {
     // Edge 内部类存储 "目标节点" 和 "代数差"
     private List<RelationEdge> connections = new ArrayList<>();
 
-    public PersonNode(Long id, String name) {
+    public PersonNode(Long id, String name, String gender) {
         this.id = id;
         this.name = name;
+        this.gender = gender;
     }
 
     /**

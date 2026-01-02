@@ -13,7 +13,7 @@ public interface PersonMapper {
      * useGeneratedKeys = true: 告诉 MyBatis 使用数据库自增 ID
      * keyProperty = "id": 插入成功后，把生成的 ID 填回 Person 对象的 id 字段中
      */
-    @Insert("INSERT INTO t_person(name, level) VALUES(#{name}, #{level})")
+    @Insert("INSERT INTO t_person(name, level, gender) VALUES(#{name}, #{level}, #{gender})")
     @Options(useGeneratedKeys = true, keyProperty = "id")
     int insert(Person person);
 
@@ -22,6 +22,13 @@ public interface PersonMapper {
      */
     @Select("SELECT * FROM t_person WHERE id = #{id}")
     Person selectById(Long id);
+
+
+    /**
+     * 2. 根据 Name 查询
+     */
+    @Select("SELECT * FROM t_person WHERE name = #{name}")
+    Person selectByName(String name);
 
     /**
      * 3. 查询所有人 (用于系统启动时加载内存图)

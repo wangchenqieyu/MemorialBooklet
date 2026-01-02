@@ -13,7 +13,8 @@ public interface RelationshipMapper {
      * 1. 插入新关系
      */
     @Insert("INSERT INTO t_relationship(from_person_id, to_person_id, generation_gap) " +
-            "VALUES(#{fromPersonId}, #{toPersonId}, #{generationGap})")
+            "VALUES(#{fromPersonId}, #{toPersonId}, #{generationGap}) " +
+            "ON DUPLICATE KEY UPDATE generation_gap = #{generationGap}")
     @Options(useGeneratedKeys = true, keyProperty = "id")
     int insert(Relationship relationship);
 

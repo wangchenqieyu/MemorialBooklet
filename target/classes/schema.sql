@@ -32,3 +32,18 @@ CREATE TABLE IF NOT EXISTS t_login (
     CONSTRAINT fk_person FOREIGN KEY (person_id) REFERENCES t_person(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+ALTER TABLE t_person
+    ADD UNIQUE INDEX uk_name (name);
+
+ALTER TABLE t_relationship
+    ADD UNIQUE KEY uk_relation (from_person_id, to_person_id);
+
+DELETE t1
+FROM t_relationship t1
+         JOIN t_relationship t2
+              ON t1.from_person_id = t2.from_person_id
+                  AND t1.to_person_id = t2.to_person_id
+WHERE t1.id > t2.id;
+
+ALTER TABLE t_person MODIFY gender CHAR(1) DEFAULT '1' comment '1:男, 0:女';
+

@@ -3,6 +3,7 @@ package org.example.memorialbooklet.facade;
 
 import org.example.memorialbooklet.pedigree.FamilyTreeService;
 import org.example.memorialbooklet.pedigree.mybatis.type.Person;
+import org.example.memorialbooklet.pedigree.mybatis.type.RelationType;
 import org.example.memorialbooklet.request.FamilyTreeVO;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -20,9 +21,23 @@ public class FamilyController {
      * POST /api/v1/family/person?name=张三
      */
     @PostMapping("/person")
-    public Person createPerson(@RequestParam String name, @RequestParam String password) {
-        return familyTreeService.createPerson(name, password);
+    public Person createPerson(
+            @RequestParam String name,
+            @RequestParam String password,
+            @RequestParam(defaultValue = "1") Integer gender) {
+        return familyTreeService.createPerson(name, password, gender);
     }
+
+    /**
+     * 从登陆人的视角重构族谱树
+     * @param personId
+     * @return
+     */
+    @PostMapping("/view")
+    public Person viewByPersonId(@RequestParam long personId) {
+        return familyTreeService.viewPerson(personId);
+    }
+
 
     /**
      * 2. 添加关系 (并自动重算布局)
@@ -32,8 +47,8 @@ public class FamilyController {
     @PostMapping("/relationship")
     public String addRelationship(@RequestParam Long fromId,
                                   @RequestParam Long toId,
-                                  @RequestParam int gap) {
-        familyTreeService.addConnection(fromId, toId, gap);
+                                  @RequestParam RelationType type) {
+        familyTreeService.addConnection(fromId, toId, type);
         return "success";
     }
 

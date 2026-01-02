@@ -8,4 +8,5 @@ public class Person {
     private Long id;
     private String name;
     private Integer level; // 存储计算后的代数 (0, 1, 2...)
+    private String gender;
 }
