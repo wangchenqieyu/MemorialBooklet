@@ -1,35 +1,63 @@
 version: '3.8'
 
+#services:
+#  # ==============================
+#  # IPFS 节点服务 (用于文件存储)
+#  # ==============================
+#  ipfs-node:
+#    image: ipfs/kubo:latest
+#    container_name: ipfs_node
+#    # 🚨 确保数据持久化，防止容器重启数据丢失 🚨
+#    volumes:
+#      - ipfs_data:/data/ipfs
+#    ports:
+#      - "5001:5001"  # HTTP API 端口 (Spring Boot 应用连接此端口)
+#      - "8080:8080"  # Gateway 端口
+#      - "4001:4001"  # Swarm (P2P 通信)
+#    # 确保在启动时执行初始化命令
+#    command: daemon --enable-pubsub-experiment
+#
+#  # ==============================
+#  # Conflux EVM 本地节点 (可选，用于本地测试)
+#  # ==============================
+#  conflux-node:
+#    image: confluxchain/evm_node:latest # 使用 Conflux EVM 兼容的节点
+#    container_name: conflux_node
+#    ports:
+#      - "8545:8545" # Ethereum RPC 端口
+#      - "12537:12537" # Conflux Native RPC 端口
+#    # 这是一个本地测试节点，通常不需要持久化卷
+#    # 如果要连接远程测试网，可以注释掉此服务
+#
+## 定义持久化卷
+#volumes:
+#  ipfs_data:
+#  # Docker 会自动管理此卷，保证 IPFS 数据不丢失
+
 services:
-  # ==============================
-  # IPFS 节点服务 (用于文件存储)
-  # ==============================
-  ipfs-node:
-    image: ipfs/kubo:latest
-    container_name: ipfs_node
-    # 🚨 确保数据持久化，防止容器重启数据丢失 🚨
+  mysql-docker:
+    image: mysql:8.0
+    container_name: family_tree_db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: "123456"
+      MYSQL_DATABASE: "family_tree"
+      # 这里不需要指定 MYSQL_DATABASE，因为我们的 init-dump.sql 里包含了 create database 语句
+      MYSQL_TCP_PORT: 3306
+
+    ports:
+      # 【重要】为了避免和你本地运行的 MySQL (3306) 冲突，
+      # 我们把容器的 3306 映射到宿主机的 3307 端口
+      - "3307:3306"
     volumes:
-      - ipfs_data:/data/ipfs
-    ports:
-      - "5001:5001"  # HTTP API 端口 (Spring Boot 应用连接此端口)
-      - "8080:8080"  # Gateway 端口
-      - "4001:4001"  # Swarm (P2P 通信)
-    # 确保在启动时执行初始化命令
-    command: daemon --enable-pubsub-experiment
+      # 1. 数据持久化：防止重启容器后数据丢失
+      - ./docker-mysql/data:/var/lib/mysql
+      # 2. 初始化脚本：将刚才导出的数据挂载进去，容器第一次启动时会自动导入
+      - ./docker-mysql/init:/docker-entrypoint-initdb.d
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    networks:
+      - family-net
 
-  # ==============================
-  # Conflux EVM 本地节点 (可选，用于本地测试)
-  # ==============================
-  conflux-node:
-    image: confluxchain/evm_node:latest # 使用 Conflux EVM 兼容的节点
-    container_name: conflux_node
-    ports:
-      - "8545:8545" # Ethereum RPC 端口
-      - "12537:12537" # Conflux Native RPC 端口
-    # 这是一个本地测试节点，通常不需要持久化卷
-    # 如果要连接远程测试网，可以注释掉此服务
-
-# 定义持久化卷
-volumes:
-  ipfs_data:
-  # Docker 会自动管理此卷，保证 IPFS 数据不丢失
+networks:
+  family-net:
+    driver: bridge
