@@ -47,3 +47,18 @@ WHERE t1.id > t2.id;
 
 ALTER TABLE t_person MODIFY gender CHAR(1) DEFAULT '1' comment '1:男, 0:女';
 
+CREATE TABLE `digital_asset_details` (
+                                         `file_id` BIGINT NOT NULL COMMENT '文件ID，关联主表digital_legacy_assets的id',
+                                         `description` TEXT COMMENT '文件的详细描述信息',
+                                         `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '详情信息的创建/录入时间',
+
+    -- 1. 设为主键：物理上保证了 file_id 绝对不可重复，且非空
+                                         PRIMARY KEY (`file_id`),
+
+    -- 2. 设置外键：确保这个 file_id 必须在主表里存在，才能往这里插数据
+                                         CONSTRAINT `fk_asset_detail_file_id`
+                                             FOREIGN KEY (`file_id`)
+                                                 REFERENCES `digital_legacy_assets` (`id`)
+                                                 ON DELETE CASCADE -- (可选) 如果主表文件删了，详情自动删除，防止产生垃圾数据
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='数字资产详情表';
+
