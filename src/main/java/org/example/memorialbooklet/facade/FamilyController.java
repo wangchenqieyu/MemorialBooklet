@@ -29,6 +29,19 @@ public class FamilyController {
     }
 
     /**
+     * 1. 添加人员节点
+     * POST /api/v1/family/person?name=张三
+     */
+    @PostMapping("/no-password/person")
+    public Person createPerson(
+            @RequestParam String name,
+            @RequestParam(defaultValue = "1") Integer gender) {
+        return familyTreeService.createPerson(name, gender);
+    }
+
+
+
+    /**
      * 从登陆人的视角重构族谱树
      * @param personId
      * @return
@@ -64,12 +77,22 @@ public class FamilyController {
     }
 
     /**
+     * 5. 删除人员节点
+     * DELETE /api/v1/family/person?personId=1
+     */
+    @DeleteMapping("/person")
+    public String removePerson(@RequestParam Long personId) {
+        familyTreeService.removePerson(personId);
+        return "success";
+    }
+
+    /**
      * 4. 获取整棵树结构 (前端渲染用)
-     * GET /api/v1/family/tree
+     * GET /api/v1/family/tree?rootId=4
+     * 如果传入 rootId，则以该用户为视角重新计算层级
      */
     @GetMapping("/tree")
-    public FamilyTreeVO getFamilyTree() {
-        // 这里默认返回全图，如果需要以某人为中心，可以传参
-        return familyTreeService.getFamilyTreeGraph();
+    public FamilyTreeVO getFamilyTree(@RequestParam(required = false) Long rootId) {
+        return familyTreeService.getFamilyTreeGraph(rootId);
     }
 }

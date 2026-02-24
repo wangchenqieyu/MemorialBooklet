@@ -42,4 +42,10 @@ public interface PersonMapper {
      */
     @Update("UPDATE t_person SET level = #{level} WHERE id = #{id}")
     void updateLevel(@Param("id") Long id, @Param("level") Integer level);
+
+    /**
+     * 5. 删除人员
+     */
+    @Delete("DELETE FROM t_person WHERE id = #{id}")
+    void deleteById(Long id);
 }

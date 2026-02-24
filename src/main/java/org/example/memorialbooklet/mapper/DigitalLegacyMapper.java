@@ -3,6 +3,8 @@ package org.example.memorialbooklet.mapper;
 import org.apache.ibatis.annotations.*;
 import org.example.memorialbooklet.pedigree.mybatis.type.DigitalLegacyAsset;
 
+import java.util.List;
+
 @Mapper
 public interface DigitalLegacyMapper {
 
@@ -42,4 +44,11 @@ public interface DigitalLegacyMapper {
             @Result(property = "confluxCode", column = "conflux_code")
     })
     DigitalLegacyAsset findById(Long id);
+
+    /**
+     * 根据人员ID查询资产列表
+     */
+    @Select("SELECT id, person_id AS personId, ipfs_code AS ipfsCode, conflux_code AS confluxCode " +
+            "FROM digital_legacy_assets WHERE person_id = #{personId}")
+    List<DigitalLegacyAsset> selectByPersonId(Long personId);
 }

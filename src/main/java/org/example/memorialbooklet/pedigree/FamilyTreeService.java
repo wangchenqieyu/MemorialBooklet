@@ -43,8 +43,11 @@ public class FamilyTreeService {
             String requiredGender = type.getTargetGender();
 
             if (currentGender != null && !currentGender.equals(requiredGender)) {
+                String reqDesc = "1".equals(requiredGender) ? "男性" : "女性";
+                String curDesc = "1".equals(currentGender) ? "男性" : ("0".equals(currentGender) ? "女性" : "未知值(" + currentGender + ")");
+
                 throw new IllegalArgumentException("性别冲突！" +
-                        type.getDescription() + "必须是" + ("1".equals(requiredGender) ? "男性" : "女性"));
+                        type.getDescription() + "必须是" + reqDesc + "，但目标人物实际是" + curDesc);
             }
         }
 
@@ -116,6 +119,33 @@ public class FamilyTreeService {
         return p;
     }
 
+
+    @Transactional
+    public Person createPerson(String name, Integer gender) {
+
+        // 1. 构建对象
+        Person p = new Person();
+        p.setName(name);
+        // 新创建的人默认层级为 0 (或者 null，取决于你的业务，这里暂设 0)
+        // 等他和别人建立关系后，会自动根据 BFS 算法重算这个值
+        p.setLevel(0);
+        p.setGender(gender != null ? String.valueOf(gender) : null);
+
+        // 2. 【持久化】存入 MySQL
+        // MyBatis 的 insert 方法执行后，会自动把生成的 ID 回填到 p 对象中
+        personMapper.insert(p);
+
+        // 3. 【同步】加入内存计算引擎
+        // 这一步非常关键！如果不加，后续调用 addConnection 时，Manager 会报空指针
+        treeManager.addPerson(p.getId(), p.getName(), p.getGender());
+
+        System.out.println("已创建人员: " + p.getName() + ", ID: " + p.getId());
+
+        return p;
+    }
+
+
+
     public Person viewPerson(Long personId) {
         Person p = personMapper.selectById(personId);
         if (p == null) {
@@ -146,16 +176,82 @@ public class FamilyTreeService {
         syncMemoryToDatabase();
     }
 
-    public FamilyTreeVO getFamilyTreeGraph() {
+    /**
+     * 删除人员
+     */
+    @Transactional
+    public void removePerson(Long personId) {
+        // 1. 检查是否存在关系
+        List<Relationship> relationships = relationshipMapper.selectByPersonId(personId);
+        if (relationships != null && !relationships.isEmpty()) {
+            // 获取关联的人员ID，用于提示
+            StringBuilder sb = new StringBuilder();
+            for (Relationship r : relationships) {
+                Long otherId = r.getFromPersonId().equals(personId) ? r.getToPersonId() : r.getFromPersonId();
+                Person other = personMapper.selectById(otherId);
+                String otherName = (other != null) ? other.getName() : "ID:" + otherId;
+                sb.append(otherName).append(", ");
+            }
+            String relatedNames = sb.length() > 0 ? sb.substring(0, sb.length() - 2) : "";
+            throw new IllegalArgumentException("无法删除！该人员与以下人员仍存在关系：" + relatedNames + "。请先解除关系。");
+        }
+
+        // 2. 数据库删除
+        personMapper.deleteById(personId);
+
+        // 3. 内存删除
+        treeManager.removePerson(personId);
+    }
+
+    public FamilyTreeVO getFamilyTreeGraph(Long rootId) {
+        List<Person> people = personMapper.selectAll();
+        if (people.isEmpty()) {
+            return new FamilyTreeVO();
+        }
+
+        // 1. 确定 Root ID
+        // 如果没传 rootId，尝试用 Manager 现有的；如果也没有，就默认用第一个人
+        if (rootId == null) {
+            rootId = treeManager.getRootUserId();
+            if (rootId == null && !people.isEmpty()) {
+                rootId = people.get(0).getId();
+            }
+        }
+
+        // 2. 触发内存重算 (确保 Level 是基于当前 rootId 的)
+        if (rootId != null) {
+            // 找到 root 对应的 Person 对象
+            Long finalRootId = rootId;
+            Person rootPerson = people.stream()
+                    .filter(p -> p.getId().equals(finalRootId))
+                    .findFirst()
+                    .orElse(null);
+            
+            if (rootPerson != null) {
+                treeManager.initRootUser(rootId, rootPerson.getName(), rootPerson.getGender());
+            }
+        }
+
         FamilyTreeVO vo = new FamilyTreeVO();
         vo.setRootId(treeManager.getRootUserId());
 
-        List<Person> people = personMapper.selectAll();
         Map<Long, Person> personMap = people.stream()
                 .collect(Collectors.toMap(Person::getId, p -> p));
 
+        // 3. 获取内存中的节点状态 (包含最新的 relativeLevel)
+        Map<Long, PersonNode> memoryNodes = treeManager.getNodeMap();
+
+        // 4. 构建 NodeVO，优先使用内存中的 Level
         vo.setNodes(people.stream()
-                .map(p -> new FamilyTreeVO.NodeVO(p.getId(), p.getName(), p.getLevel()))
+                .map(p -> {
+                    Integer level = p.getLevel(); // 默认用数据库的
+                    PersonNode memoryNode = memoryNodes.get(p.getId());
+                    if (memoryNode != null && memoryNode.isVisited()) {
+                        // 如果内存中有计算好的相对层级，优先使用它
+                        level = memoryNode.getRelativeLevel();
+                    }
+                    return new FamilyTreeVO.NodeVO(p.getId(), p.getName(), level);
+                })
                 .toList());
 
         List<Relationship> relationships = relationshipMapper.selectAll();
@@ -192,7 +288,8 @@ public class FamilyTreeService {
 
         // --- 平辈 (Gap 0) ---
         if (gap == 0) {
-            return isMale ? "兄弟/丈夫" : "姐妹/妻子";
+            // 修改：只保留丈夫/妻子，去掉兄弟/姐妹
+            return isMale ? "丈夫" : "妻子";
         }
 
         // --- 长辈 (Gap > 0) ---

@@ -2,6 +2,8 @@ package org.example.memorialbooklet.facade;
 
 import org.example.memorialbooklet.dto.UploadFileResponse;
 import org.example.memorialbooklet.ipfs.IpfsService;
+import org.example.memorialbooklet.pedigree.mybatis.type.DigitalLegacyAsset;
+import org.example.memorialbooklet.response.FileIpfsDetailResponse;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -9,14 +11,17 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 @RestController
 // Sets the base path for all methods in this controller
 @RequestMapping("/api/ipfs")
+@CrossOrigin(origins = "*") // 允许前端跨域调试
 public class IpfsStorageController {
 
     private final IpfsService ipfsService;
@@ -29,19 +34,17 @@ public class IpfsStorageController {
     /**
      * Handles file uploads via HTTP POST request.
      *
-     * The client should send the raw file content in the request body
-     * with the header 'Content-Type: application/octet-stream'.
-     *
-     * Spring automatically binds the raw request body stream to the InputStream parameter,
-     * which enables efficient, stream-based processing without buffering the entire file
-     * in the controller's memory. This replaces the PipedStream logic used in gRPC.
+     * The client should send the raw file content in the request body.
+     * We accept ALL media types because the browser might automatically set
+     * Content-Type to image/jpeg, application/pdf, etc., and we want to handle them all
+     * as a raw stream.
      *
      * @param inputStream The raw data stream of the file content from the HTTP request body.
      * @return ResponseEntity containing the CID and a status message.
      */
     @PostMapping(value = "/upload",
-            // Specifies the expected input type for streaming binary data
-            consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE,
+            // Allow any content type (e.g., image/jpeg, application/pdf, application/octet-stream)
+            consumes = MediaType.ALL_VALUE,
             // Specifies the output type
             produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<UploadFileResponse> uploadFile(InputStream inputStream, Long personId) throws IOException {
@@ -56,8 +59,6 @@ public class IpfsStorageController {
 
         try {
             // 1. Core Logic: Directly pass the incoming HTTP stream to the IPFS service.
-            // This is the equivalent of the separate executor thread in the gRPC version,
-            // but managed synchronously by the Spring request handling thread.
             String cid = ipfsService.uploadFile(inputStream, personId);
 
             UploadFileResponse responseBody = new UploadFileResponse(
@@ -68,6 +69,13 @@ public class IpfsStorageController {
             // 2. Return success response with HTTP 200 OK
             return new ResponseEntity<>(responseBody, HttpStatus.OK);
 
+        } catch (EOFException e) {
+            // Specific handling for empty body or interrupted stream
+            System.err.println("IPFS upload failed: Stream ended unexpectedly (EOF). Body might be empty.");
+            return new ResponseEntity<>(
+                    new UploadFileResponse(null, "Upload failed: Request body is empty or stream interrupted."),
+                    HttpStatus.BAD_REQUEST
+            );
         } catch (IOException e) {
             // Handle IO errors (e.g., issues communicating with IPFS or reading the stream)
             System.err.println("IPFS upload IO error: " + e.getMessage());
@@ -118,6 +126,17 @@ public class IpfsStorageController {
                 return new ResponseEntity<>(HttpStatus.NOT_FOUND); // HTTP 404
             }
             return new ResponseEntity<>(HttpStatus.INTERNAL_SERVER_ERROR); // HTTP 500
+        }
+    }
+
+    @GetMapping(value = "/search-files/{personId}")
+    public ResponseEntity<List<FileIpfsDetailResponse>> searchFiles(@PathVariable long personId) {
+        try {
+            List<FileIpfsDetailResponse> assets = ipfsService.findByPersonId(personId);
+            return new ResponseEntity<>(assets, HttpStatus.OK);
+        } catch (IOException e) {
+            System.err.println("IPFS search error for personId " + personId + ": " + e.getMessage());
+            return new ResponseEntity<>(HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
 }

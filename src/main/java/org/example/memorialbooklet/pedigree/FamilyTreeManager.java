@@ -223,4 +223,8 @@ public class FamilyTreeManager {
             to.getConnections().removeIf(edge -> edge.target.getId().equals(fromId));
         }
     }
+
+    public void removePerson(Long personId) {
+        nodeMap.remove(personId);
+    }
 }

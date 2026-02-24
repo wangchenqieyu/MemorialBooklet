@@ -6,10 +6,12 @@ import io.ipfs.api.NamedStreamable;
 import io.ipfs.multihash.Multihash;
 import org.example.memorialbooklet.mapper.DigitalLegacyMapper;
 import org.example.memorialbooklet.pedigree.mybatis.type.DigitalLegacyAsset;
+import org.example.memorialbooklet.response.FileIpfsDetailResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -63,5 +65,23 @@ public class IpfsServiceImpl implements IpfsService {
             // 捕获并重新抛出，以便控制器层处理，例如文件不存在 (object not found)
             throw new IOException("Failed to download file with CID " + cid + ": " + e.getMessage(), e);
         }
+    }
+
+    @Override
+    public List<FileIpfsDetailResponse> findByPersonId(long personId) throws IOException {
+        List<DigitalLegacyAsset> asset = legacyMapper.selectByPersonId(personId);
+        List<FileIpfsDetailResponse> responses = new ArrayList<>();
+        if (asset == null) {
+            throw new IOException("IPFS 中未找到文件 CID: " + personId);
+        }
+        for (DigitalLegacyAsset assetItem : asset) {
+            FileIpfsDetailResponse response = new FileIpfsDetailResponse();
+            response.setIpfsCode(assetItem.getIpfsCode());
+            response.setConfluxCode(assetItem.getConfluxCode());
+            response.setPersonId(assetItem.getPersonId());
+            response.setId(assetItem.getId());
+            responses.add(response);
+        }
+        return responses;
     }
 }
