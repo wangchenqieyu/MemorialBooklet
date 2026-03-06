@@ -4,15 +4,13 @@ import org.example.memorialbooklet.blockchain.BlockchainService;
 import org.example.memorialbooklet.blockchain.BlockchainServiceFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 import org.example.memorialbooklet.request.CidCodeRequest;
 import org.example.memorialbooklet.response.TransactionResponse;
 
 @RestController
 @RequestMapping("/api/v1/chain")
+@CrossOrigin(origins = "*") // 允许前端跨域调试
 public class IpfsCidCodeChainFacade {
 
     private final BlockchainServiceFactory serviceFactory;

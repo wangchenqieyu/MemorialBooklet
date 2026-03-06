@@ -120,8 +120,12 @@ public class FamilyTreeManager {
         PersonNode to = nodeMap.get(toId);
 
         if (from == null || to == null) {
-            System.err.println("错误：找不到对应的人员节点");
-            return;
+            throw new IllegalArgumentException("找不到对应的人员节点: fromId=" + fromId + ", toId=" + toId);
+        }
+
+        // 增量建边前如果没有视角根，或旧根已失效，默认将关系起点作为根，避免本次重算被跳过。
+        if (rootUserId == null || !nodeMap.containsKey(rootUserId)) {
+            rootUserId = fromId;
         }
 
         // 1. 在图数据结构中建立双向边
@@ -165,14 +169,14 @@ public class FamilyTreeManager {
             // 遍历当前节点连接的所有边
             for (PersonNode.RelationEdge edge : current.getConnections()) {
                 PersonNode neighbor = edge.target;
+                int calculatedLevel = current.getRelativeLevel() + edge.gap;
+
 
                 // 如果这个亲戚还没被计算过
-                if (!neighbor.isVisited()) {
+                if (!neighbor.isVisited() || neighbor.getRelativeLevel() != calculatedLevel){
                     // 核心算式：亲戚Level = 我的Level + 差距
                     // 例：我(0) + 爸爸Gap(1) = 爸爸(1)
                     // 例：爸爸(1) + 爷爷Gap(1) = 爷爷(2)
-                    int calculatedLevel = current.getRelativeLevel() + edge.gap;
-
                     neighbor.setRelativeLevel(calculatedLevel);
                     neighbor.setVisited(true);
 
@@ -225,6 +229,14 @@ public class FamilyTreeManager {
     }
 
     public void removePerson(Long personId) {
+        // 先清掉其他节点指向该人的边，避免内存里残留悬挂连接
+        for (PersonNode node : nodeMap.values()) {
+            node.getConnections().removeIf(edge -> edge.target.getId().equals(personId));
+        }
+
         nodeMap.remove(personId);
+        if (personId.equals(rootUserId)) {
+            rootUserId = null;
+        }
     }
 }

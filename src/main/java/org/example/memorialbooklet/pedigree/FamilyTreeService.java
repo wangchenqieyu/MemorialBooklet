@@ -209,34 +209,22 @@ public class FamilyTreeService {
             return new FamilyTreeVO();
         }
 
-        // 1. 确定 Root ID
-        // 如果没传 rootId，尝试用 Manager 现有的；如果也没有，就默认用第一个人
-        if (rootId == null) {
-            rootId = treeManager.getRootUserId();
-            if (rootId == null && !people.isEmpty()) {
-                rootId = people.get(0).getId();
-            }
-        }
-
-        // 2. 触发内存重算 (确保 Level 是基于当前 rootId 的)
-        if (rootId != null) {
-            // 找到 root 对应的 Person 对象
-            Long finalRootId = rootId;
-            Person rootPerson = people.stream()
-                    .filter(p -> p.getId().equals(finalRootId))
-                    .findFirst()
-                    .orElse(null);
-            
-            if (rootPerson != null) {
-                treeManager.initRootUser(rootId, rootPerson.getName(), rootPerson.getGender());
-            }
-        }
-
-        FamilyTreeVO vo = new FamilyTreeVO();
-        vo.setRootId(treeManager.getRootUserId());
-
         Map<Long, Person> personMap = people.stream()
                 .collect(Collectors.toMap(Person::getId, p -> p));
+
+        Long effectiveRootId = rootId != null ? rootId : treeManager.getRootUserId();
+        if (effectiveRootId == null || !personMap.containsKey(effectiveRootId)) {
+            effectiveRootId = people.stream()
+                    .map(Person::getId)
+                    .min(Long::compareTo)
+                    .orElseThrow(() -> new IllegalStateException("people list should not be empty"));
+        }
+
+        Person rootPerson = personMap.get(effectiveRootId);
+        treeManager.initRootUser(effectiveRootId, rootPerson.getName(), rootPerson.getGender());
+
+        FamilyTreeVO vo = new FamilyTreeVO();
+        vo.setRootId(effectiveRootId);
 
         // 3. 获取内存中的节点状态 (包含最新的 relativeLevel)
         Map<Long, PersonNode> memoryNodes = treeManager.getNodeMap();
