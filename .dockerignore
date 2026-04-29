@@ -1,0 +1,10 @@
+.git
+.github
+.idea
+.vscode
+target
+node_modules
+README.md
+HELP.md
+docker-mysql/data
+*.log
