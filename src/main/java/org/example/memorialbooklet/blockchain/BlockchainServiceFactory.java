@@ -4,13 +4,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
- * 区块链服务工厂：负责创建BlockchainService实例
+ * 区块链服务工厂：负责创建BlockchainService实例，呵呵
  * 后续如需切换到其他链（如ETH测试网），只需新增实现类，无需修改上层代码
  */
 @Component
 public class BlockchainServiceFactory {
 
-    // 注入Conflux实现（Spring自动扫描Bean）
+    // 触发de（Spring自动扫描Bean）
     @Autowired
     private ConfluxBlockchainServiceImpl confluxService;
 
