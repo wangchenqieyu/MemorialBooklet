@@ -12,10 +12,42 @@ concurrency:
 jobs:
   deploy:
     runs-on: [self-hosted, ecs_prod]
+    env:
+      HTTP_PROXY: ${{ vars.HTTP_PROXY }}
+      HTTPS_PROXY: ${{ vars.HTTPS_PROXY }}
+      NO_PROXY: ${{ vars.NO_PROXY }}
 
     steps:
-      - name: Checkout
+      - name: Preflight GitHub connectivity (best effort)
+        shell: bash
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          for url in https://github.com https://api.github.com; do
+            if curl -I --connect-timeout 10 --max-time 20 "$url" >/dev/null 2>&1; then
+              echo "OK: $url"
+            else
+              echo "WARN: cannot reach $url right now"
+            fi
+          done
+
+      - name: Checkout (attempt 1)
+        id: checkout_primary
         uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          fetch-depth: 1
+
+      - name: Wait before checkout retry
+        if: steps.checkout_primary.outcome == 'failure'
+        shell: bash
+        run: sleep 20
+
+      - name: Checkout (attempt 2)
+        if: steps.checkout_primary.outcome == 'failure'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
       - name: Ensure Docker is installed
         shell: bash
