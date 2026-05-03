@@ -98,6 +98,28 @@ jobs:
 
           docker info | grep -i "Registry Mirrors" -A2 || true
 
+      - name: Login to Alibaba Cloud ACR (optional)
+        shell: bash
+        env:
+          ACR_REGISTRY: ${{ vars.ACR_REGISTRY }}
+          ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
+          ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${ACR_REGISTRY:-}" ]; then
+            echo "ACR_REGISTRY is not set. Skip ACR login."
+            exit 0
+          fi
+
+          if [ -z "${ACR_USERNAME:-}" ] || [ -z "${ACR_PASSWORD:-}" ]; then
+            echo "ACR_REGISTRY is set, but ACR_USERNAME/ACR_PASSWORD is missing."
+            exit 1
+          fi
+
+          echo "Logging in to ACR: ${ACR_REGISTRY}"
+          echo "${ACR_PASSWORD}" | docker login "${ACR_REGISTRY}" --username "${ACR_USERNAME}" --password-stdin
+
       - name: Write .env for compose
         shell: bash
         run: |
