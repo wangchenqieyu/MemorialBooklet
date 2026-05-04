@@ -153,6 +153,25 @@ jobs:
           echo "Logging in to ACR: ${ACR_REGISTRY}"
           echo "${ACR_PASSWORD}" | docker login "${ACR_REGISTRY}" --username "${ACR_USERNAME}" --password-stdin
 
+      - name: Print deploy context (safe debug)
+        shell: bash
+        env:
+          ACR_REGISTRY: ${{ vars.ACR_REGISTRY }}
+          MYSQL_IMAGE_MIRROR: ${{ vars.MYSQL_IMAGE_MIRROR || '' }}
+          IPFS_IMAGE_MIRROR: ${{ vars.IPFS_IMAGE_MIRROR || '' }}
+        run: |
+          set -euo pipefail
+          echo "ref=${GITHUB_REF}"
+          echo "sha=${GITHUB_SHA}"
+          echo "runner=${RUNNER_NAME:-unknown} os=${RUNNER_OS:-unknown} arch=${RUNNER_ARCH:-unknown}"
+          echo "environment=ecs_prod"
+          echo "proxy.http_set=$([ -n "${HTTP_PROXY:-}" ] && echo yes || echo no)"
+          echo "proxy.https_set=$([ -n "${HTTPS_PROXY:-}" ] && echo yes || echo no)"
+          echo "proxy.no_proxy_set=$([ -n "${NO_PROXY:-}" ] && echo yes || echo no)"
+          echo "acr.registry_set=$([ -n "${ACR_REGISTRY:-}" ] && echo yes || echo no)"
+          echo "mirror.mysql_set=$([ -n "${MYSQL_IMAGE_MIRROR:-}" ] && echo yes || echo no)"
+          echo "mirror.ipfs_set=$([ -n "${IPFS_IMAGE_MIRROR:-}" ] && echo yes || echo no)"
+
       - name: Resolve image source (prefer ACR mirror)
         shell: bash
         env:
@@ -167,15 +186,28 @@ jobs:
           MYSQL_IMAGE_EFFECTIVE="${MYSQL_IMAGE_MIRROR:-${MYSQL_IMAGE_DEFAULT}}"
           IPFS_IMAGE_EFFECTIVE="${IPFS_IMAGE_MIRROR:-${IPFS_IMAGE_DEFAULT}}"
 
+          MYSQL_IMAGE_SOURCE="default"
+          IPFS_IMAGE_SOURCE="default"
+          if [ -n "${MYSQL_IMAGE_MIRROR:-}" ]; then MYSQL_IMAGE_SOURCE="mirror"; fi
+          if [ -n "${IPFS_IMAGE_MIRROR:-}" ]; then IPFS_IMAGE_SOURCE="mirror"; fi
+
           echo "MYSQL_IMAGE_EFFECTIVE=${MYSQL_IMAGE_EFFECTIVE}" >> "$GITHUB_ENV"
           echo "IPFS_IMAGE_EFFECTIVE=${IPFS_IMAGE_EFFECTIVE}" >> "$GITHUB_ENV"
-          echo "Using MYSQL_IMAGE=${MYSQL_IMAGE_EFFECTIVE}"
-          echo "Using IPFS_IMAGE=${IPFS_IMAGE_EFFECTIVE}"
+          echo "MYSQL_IMAGE_SOURCE=${MYSQL_IMAGE_SOURCE}" >> "$GITHUB_ENV"
+          echo "IPFS_IMAGE_SOURCE=${IPFS_IMAGE_SOURCE}" >> "$GITHUB_ENV"
+
+          echo "Resolved MYSQL_IMAGE source=${MYSQL_IMAGE_SOURCE} value=${MYSQL_IMAGE_EFFECTIVE}"
+          echo "Resolved IPFS_IMAGE source=${IPFS_IMAGE_SOURCE} value=${IPFS_IMAGE_EFFECTIVE}"
 
       - name: Guard mirror images for prod
         shell: bash
         run: |
           set -euo pipefail
+
+          echo "Guard check: MYSQL_IMAGE_EFFECTIVE=${MYSQL_IMAGE_EFFECTIVE:-<empty>}"
+          echo "Guard check: IPFS_IMAGE_EFFECTIVE=${IPFS_IMAGE_EFFECTIVE:-<empty>}"
+          echo "Guard check: MYSQL_IMAGE_SOURCE=${MYSQL_IMAGE_SOURCE:-unknown}"
+          echo "Guard check: IPFS_IMAGE_SOURCE=${IPFS_IMAGE_SOURCE:-unknown}"
 
           if [ -z "${MYSQL_IMAGE_EFFECTIVE:-}" ] || [ -z "${IPFS_IMAGE_EFFECTIVE:-}" ]; then
             echo "Resolved images are empty."
@@ -187,6 +219,8 @@ jobs:
             echo "Please set environment vars MYSQL_IMAGE_MIRROR and IPFS_IMAGE_MIRROR in GitHub Environment 'ecs_prod'."
             exit 1
           fi
+
+          echo "Guard check passed: non-default images are configured for prod."
 
       - name: Write .env for compose
         shell: bash
@@ -222,13 +256,61 @@ jobs:
             COMPOSE_CMD="docker-compose"
           fi
 
+          echo "compose.cmd=${COMPOSE_CMD}"
+
           # Print resolved image names from compose config for debugging.
-          $COMPOSE_CMD --env-file .env config | grep -E "image:\s" || true
+          COMPOSE_IMAGES="$($COMPOSE_CMD --env-file .env config | awk '/image:/ {print $2}')"
+          if [ -n "${COMPOSE_IMAGES}" ]; then
+            echo "compose.images:"
+            echo "${COMPOSE_IMAGES}" | sed 's/^/  - /'
+          else
+            echo "WARN: no image found from compose config"
+          fi
+
+          diagnose_pull_failure() {
+            echo "---- pull diagnostics ----"
+            echo "time=$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+            echo "proxy.http_set=$([ -n "${HTTP_PROXY:-}" ] && echo yes || echo no)"
+            echo "proxy.https_set=$([ -n "${HTTPS_PROXY:-}" ] && echo yes || echo no)"
+            echo "proxy.no_proxy_set=$([ -n "${NO_PROXY:-}" ] && echo yes || echo no)"
+            echo "resolv.conf:"
+            cat /etc/resolv.conf || true
+
+            if command -v getent >/dev/null 2>&1; then
+              for host in registry-1.docker.io auth.docker.io production.cloudflare.docker.com github.com; do
+                echo "dns.getent ${host}:"
+                getent ahosts "${host}" | head -n 3 || true
+              done
+            fi
+
+            if command -v curl >/dev/null 2>&1; then
+              for url in https://registry-1.docker.io/v2/ https://auth.docker.io/token https://github.com; do
+                echo "http.check ${url}"
+                curl -I --connect-timeout 8 --max-time 20 "${url}" | head -n 5 || true
+              done
+            fi
+
+            if [ -n "${COMPOSE_IMAGES}" ]; then
+              echo "image.manifest.precheck:"
+              while IFS= read -r img; do
+                [ -z "${img}" ] && continue
+                if docker manifest inspect "${img}" >/dev/null 2>&1; then
+                  echo "  OK ${img}"
+                else
+                  echo "  FAIL ${img}"
+                fi
+              done <<< "${COMPOSE_IMAGES}"
+            fi
+            echo "---- end diagnostics ----"
+          }
 
           for i in 1 2 3; do
             if $COMPOSE_CMD --env-file .env pull --ignore-buildable; then
               break
             fi
+
+            echo "Image pull failed on attempt ${i}/3"
+            diagnose_pull_failure
 
             if [ "$i" -eq 3 ]; then
               echo "Image pull failed after 3 attempts."
