@@ -37,6 +37,33 @@ jobs:
             fi
           done
 
+      - name: Pre-checkout network diagnostics (best effort)
+        shell: bash
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          echo "=== pre-checkout diagnostics ==="
+          date -u || true
+          uname -a || true
+          cat /etc/resolv.conf || true
+          env | egrep -i 'http_proxy|https_proxy|no_proxy' || true
+
+          echo "=== dns ==="
+          for host in github.com api.github.com; do
+            echo "host=${host}"
+            getent ahosts "${host}" | head -n 5 || true
+          done
+
+          echo "=== https ==="
+          curl -I --connect-timeout 8 --max-time 20 https://github.com || true
+          curl -I --connect-timeout 8 --max-time 20 https://api.github.com || true
+
+          echo "=== tls ==="
+          echo | openssl s_client -connect github.com:443 -servername github.com -brief || true
+
+          echo "=== git ==="
+          git --no-pager ls-remote https://github.com/${GITHUB_REPOSITORY}.git || true
+
       - name: Checkout (attempt 1)
         id: checkout_primary
         uses: actions/checkout@v4
@@ -50,10 +77,39 @@ jobs:
         run: sleep 20
 
       - name: Checkout (attempt 2)
+        id: checkout_retry
         if: steps.checkout_primary.outcome == 'failure'
         uses: actions/checkout@v4
+        continue-on-error: true
         with:
           fetch-depth: 1
+
+      - name: Post-checkout-failure diagnostics (best effort)
+        if: steps.checkout_primary.outcome == 'failure' && steps.checkout_retry.outcome == 'failure'
+        shell: bash
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          echo "=== post-checkout diagnostics ==="
+          date -u || true
+          cat /etc/resolv.conf || true
+
+          for host in github.com api.github.com; do
+            echo "host=${host}"
+            getent ahosts "${host}" | head -n 5 || true
+          done
+
+          curl -I --connect-timeout 8 --max-time 20 https://github.com || true
+          curl -I --connect-timeout 8 --max-time 20 https://api.github.com || true
+          echo | openssl s_client -connect github.com:443 -servername github.com -brief || true
+          git --no-pager ls-remote https://github.com/${GITHUB_REPOSITORY}.git || true
+
+      - name: Fail if checkout could not be completed
+        if: steps.checkout_primary.outcome == 'failure' && steps.checkout_retry.outcome == 'failure'
+        shell: bash
+        run: |
+          echo "Both checkout attempts failed. See diagnostics above."
+          exit 1
 
       - name: Ensure Docker is installed
         shell: bash
