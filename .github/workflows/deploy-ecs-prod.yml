@@ -223,6 +223,7 @@ jobs:
           ACR_PASSWORD: ${{ secrets.ACR_PASSWORD || vars.ACR_PASSWORD || '' }}
           MYSQL_IMAGE_MIRROR: ${{ vars.MYSQL_IMAGE_MIRROR || '' }}
           IPFS_IMAGE_MIRROR: ${{ vars.IPFS_IMAGE_MIRROR || '' }}
+          IPFS_IMAGE_CANDIDATES: ${{ vars.IPFS_IMAGE_CANDIDATES || '' }}
         run: |
           set -euo pipefail
           echo "ref=${GITHUB_REF}"
@@ -237,148 +238,65 @@ jobs:
           echo "acr.password_set=$([ -n "${ACR_PASSWORD:-}" ] && echo yes || echo no)"
           echo "mirror.mysql_set=$([ -n "${MYSQL_IMAGE_MIRROR:-}" ] && echo yes || echo no)"
           echo "mirror.ipfs_set=$([ -n "${IPFS_IMAGE_MIRROR:-}" ] && echo yes || echo no)"
+          echo "mirror.ipfs_candidates_set=$([ -n "${IPFS_IMAGE_CANDIDATES:-}" ] && echo yes || echo no)"
 
-      - name: Diagnose mirror variable configuration
+      - name: Probe reachable IPFS image (best effort)
         shell: bash
         continue-on-error: true
         env:
-          REPO: ${{ github.repository }}
-          ENV_NAME: ecs_prod
-          GITHUB_TOKEN: ${{ github.token }}
-          MYSQL_IMAGE_MIRROR_VAR: ${{ vars.MYSQL_IMAGE_MIRROR || '' }}
-          IPFS_IMAGE_MIRROR_VAR: ${{ vars.IPFS_IMAGE_MIRROR || '' }}
-          MYSQL_IMAGE_MIRROR_SECRET: ${{ secrets.MYSQL_IMAGE_MIRROR || '' }}
-          IPFS_IMAGE_MIRROR_SECRET: ${{ secrets.IPFS_IMAGE_MIRROR || '' }}
+          IPFS_IMAGE_MIRROR: ${{ vars.IPFS_IMAGE_MIRROR || '' }}
+          IPFS_IMAGE_DEFAULT: ${{ vars.IPFS_IMAGE || 'ipfs/kubo:latest' }}
+          IPFS_IMAGE_CANDIDATES: ${{ vars.IPFS_IMAGE_CANDIDATES || 'ghcr.io/ipfs/kubo:latest,quay.io/ipfs/kubo:latest,docker.m.daocloud.io/ipfs/kubo:latest' }}
         run: |
           set -euo pipefail
 
-          # If env vars are already available, continue quickly.
-          if [ -n "${MYSQL_IMAGE_MIRROR_VAR:-}" ] && [ -n "${IPFS_IMAGE_MIRROR_VAR:-}" ]; then
-            echo "Mirror variables are present in vars context."
-            exit 0
+          normalize() {
+            echo "$1" | xargs
+          }
+
+          ordered=""
+          if [ -n "${IPFS_IMAGE_MIRROR:-}" ]; then
+            ordered="$(normalize "${IPFS_IMAGE_MIRROR}")"
           fi
 
-          python3 - <<'PY'
-          import json
-          import os
-          import difflib
-          import urllib.request
-          import urllib.error
+          IFS=',' read -r -a raw_candidates <<< "${IPFS_IMAGE_CANDIDATES}"
+          for item in "${raw_candidates[@]}"; do
+            c="$(normalize "${item}")"
+            [ -z "${c}" ] && continue
+            if [ -z "${ordered}" ]; then
+              ordered="${c}"
+            elif ! echo "${ordered}" | tr ',' '\n' | grep -Fxq "${c}"; then
+              ordered="${ordered},${c}"
+            fi
+          done
 
-          repo = os.environ.get("REPO", "")
-          token = os.environ.get("GITHUB_TOKEN", "")
-          env_name = os.environ.get("ENV_NAME", "ecs_prod")
-          want = ["MYSQL_IMAGE_MIRROR", "IPFS_IMAGE_MIRROR"]
+          d="$(normalize "${IPFS_IMAGE_DEFAULT}")"
+          if [ -n "${d}" ] && ! echo "${ordered}" | tr ',' '\n' | grep -Fxq "${d}"; then
+            ordered="${ordered},${d}"
+          fi
 
-          mysql_var_set = bool(os.environ.get("MYSQL_IMAGE_MIRROR_VAR", ""))
-          ipfs_var_set = bool(os.environ.get("IPFS_IMAGE_MIRROR_VAR", ""))
-          mysql_secret_set = bool(os.environ.get("MYSQL_IMAGE_MIRROR_SECRET", ""))
-          ipfs_secret_set = bool(os.environ.get("IPFS_IMAGE_MIRROR_SECRET", ""))
+          echo "IPFS candidate order: ${ordered}"
 
-          print(f"runtime.var.mysql_set={str(mysql_var_set).lower()}")
-          print(f"runtime.var.ipfs_set={str(ipfs_var_set).lower()}")
-          print(f"runtime.secret.mysql_set={str(mysql_secret_set).lower()}")
-          print(f"runtime.secret.ipfs_set={str(ipfs_secret_set).lower()}")
+          selected=""
+          IFS=',' read -r -a final_candidates <<< "${ordered}"
+          for img in "${final_candidates[@]}"; do
+            img="$(normalize "${img}")"
+            [ -z "${img}" ] && continue
+            echo "Probe IPFS image: ${img}"
+            if timeout 20 docker manifest inspect "${img}" >/dev/null 2>&1; then
+              selected="${img}"
+              echo "Probe OK: ${img}"
+              break
+            fi
+            echo "Probe FAIL: ${img}"
+          done
 
-          if not repo or "/" not in repo:
-              print("Cannot read repository name from context.")
-              raise SystemExit(1)
-
-          owner, name = repo.split("/", 1)
-
-          def api(path):
-              url = f"https://api.github.com{path}"
-              req = urllib.request.Request(
-                  url,
-                  headers={
-                      "Authorization": f"Bearer {token}",
-                      "Accept": "application/vnd.github+json",
-                      "User-Agent": "mirror-var-diagnose"
-                  },
-              )
-              try:
-                  with urllib.request.urlopen(req, timeout=20) as r:
-                      payload = r.read().decode("utf-8")
-                      return r.status, json.loads(payload) if payload else {}
-              except urllib.error.HTTPError as e:
-                  body = e.read().decode("utf-8")
-                  try:
-                      parsed = json.loads(body) if body else {}
-                  except Exception:
-                      parsed = {"message": body}
-                  return e.code, parsed
-              except Exception as e:
-                  return 0, {"message": str(e)}
-
-          def names(payload, key):
-              return {item.get("name") for item in payload.get(key, []) if isinstance(item, dict) and item.get("name")}
-
-          repo_vars_code, repo_vars_payload = api(f"/repos/{owner}/{name}/actions/variables")
-          repo_vars = names(repo_vars_payload, "variables") if repo_vars_code == 200 else set()
-
-          envs_code, envs_payload = api(f"/repos/{owner}/{name}/environments")
-          env_names = names(envs_payload, "environments") if envs_code == 200 else set()
-          env_exists = env_name in env_names
-
-          env_vars = set()
-          env_vars_code = 0
-          if env_exists:
-              env_vars_code, env_vars_payload = api(f"/repos/{owner}/{name}/environments/{env_name}/variables")
-              env_vars = names(env_vars_payload, "variables") if env_vars_code == 200 else set()
-
-          repo_secrets_code, repo_secrets_payload = api(f"/repos/{owner}/{name}/actions/secrets")
-          repo_secrets = names(repo_secrets_payload, "secrets") if repo_secrets_code == 200 else set()
-
-          env_secrets = set()
-          env_secrets_code = 0
-          if env_exists:
-              env_secrets_code, env_secrets_payload = api(f"/repos/{owner}/{name}/environments/{env_name}/secrets")
-              env_secrets = names(env_secrets_payload, "secrets") if env_secrets_code == 200 else set()
-
-          print(f"api.repo_vars.status={repo_vars_code}")
-          print(f"api.envs.status={envs_code}")
-          print(f"api.env_vars.status={env_vars_code}")
-          print(f"api.repo_secrets.status={repo_secrets_code}")
-          print(f"api.env_secrets.status={env_secrets_code}")
-          print(f"api.environment.exists={str(env_exists).lower()}")
-
-          all_var_names = sorted(repo_vars | env_vars)
-          all_secret_names = sorted(repo_secrets | env_secrets)
-
-          reason = None
-          detail = ""
-
-          if not env_exists:
-              reason = "environment_mismatch"
-              detail = f"Environment '{env_name}' does not exist or is not visible to token."
-          elif (mysql_secret_set or ipfs_secret_set) and not (mysql_var_set and ipfs_var_set):
-              reason = "secret_instead_of_var"
-              detail = "Mirror keys seem configured in secrets, but workflow reads vars.* for mirror resolution."
-          else:
-              in_env = {k for k in want if k in env_vars}
-              in_repo = {k for k in want if k in repo_vars}
-              if in_repo and not in_env:
-                  reason = "scope_mismatch"
-                  detail = f"Found mirror keys only at repository scope: {sorted(in_repo)}; expected in environment '{env_name}' variables."
-              else:
-                  missing = [k for k in want if k not in repo_vars and k not in env_vars and k not in repo_secrets and k not in env_secrets]
-                  if missing:
-                      candidates = [n for n in (all_var_names + all_secret_names) if ("MYSQL" in n or "IPFS" in n or "MIRROR" in n)]
-                      near = {}
-                      for m in missing:
-                          near[m] = difflib.get_close_matches(m, candidates, n=3, cutoff=0.6)
-                      reason = "name_mismatch_or_missing"
-                      detail = f"Missing expected keys: {missing}; similar keys: {near}"
-
-          if reason is None:
-              reason = "unknown_or_permission"
-              detail = "Variables are still missing in runtime; check environment protection rules and API permission visibility."
-
-          print(f"diagnosis.reason={reason}")
-          print(f"diagnosis.detail={detail}")
-          print("Expected variable keys: MYSQL_IMAGE_MIRROR, IPFS_IMAGE_MIRROR")
-          print("::warning::Mirror variables are not fully configured. Non-prod mode will continue.")
-          PY
+          if [ -n "${selected}" ]; then
+            echo "IPFS_IMAGE_PROBED=${selected}" >> "$GITHUB_ENV"
+            echo "Selected IPFS image by probe: ${selected}"
+          else
+            echo "::warning::No reachable IPFS image found from candidates; fallback will be used."
+          fi
 
       - name: Resolve image source (prefer ACR mirror)
         shell: bash
@@ -392,12 +310,20 @@ jobs:
 
           # Always prefer mirror values when configured; otherwise fall back to defaults.
           MYSQL_IMAGE_EFFECTIVE="${MYSQL_IMAGE_MIRROR:-${MYSQL_IMAGE_DEFAULT}}"
-          IPFS_IMAGE_EFFECTIVE="${IPFS_IMAGE_MIRROR:-${IPFS_IMAGE_DEFAULT}}"
+
+          if [ -n "${IPFS_IMAGE_PROBED:-}" ]; then
+            IPFS_IMAGE_EFFECTIVE="${IPFS_IMAGE_PROBED}"
+            IPFS_IMAGE_SOURCE="probe"
+          elif [ -n "${IPFS_IMAGE_MIRROR:-}" ]; then
+            IPFS_IMAGE_EFFECTIVE="${IPFS_IMAGE_MIRROR}"
+            IPFS_IMAGE_SOURCE="mirror"
+          else
+            IPFS_IMAGE_EFFECTIVE="${IPFS_IMAGE_DEFAULT}"
+            IPFS_IMAGE_SOURCE="default"
+          fi
 
           MYSQL_IMAGE_SOURCE="default"
-          IPFS_IMAGE_SOURCE="default"
           if [ -n "${MYSQL_IMAGE_MIRROR:-}" ]; then MYSQL_IMAGE_SOURCE="mirror"; fi
-          if [ -n "${IPFS_IMAGE_MIRROR:-}" ]; then IPFS_IMAGE_SOURCE="mirror"; fi
 
           echo "MYSQL_IMAGE_EFFECTIVE=${MYSQL_IMAGE_EFFECTIVE}" >> "$GITHUB_ENV"
           echo "IPFS_IMAGE_EFFECTIVE=${IPFS_IMAGE_EFFECTIVE}" >> "$GITHUB_ENV"
@@ -504,6 +430,10 @@ jobs:
               echo "image.manifest.precheck:"
               while IFS= read -r img; do
                 [ -z "${img}" ] && continue
+                if [ "${img}" = "memorialbooklet:latest" ]; then
+                  echo "  SKIP ${img} (local build image)"
+                  continue
+                fi
                 if docker manifest inspect "${img}" >/dev/null 2>&1; then
                   echo "  OK ${img}"
                 else
