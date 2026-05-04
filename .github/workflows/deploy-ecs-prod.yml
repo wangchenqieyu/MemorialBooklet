@@ -12,6 +12,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: [self-hosted, ecs_prod]
+    environment: ecs_prod
     env:
       HTTP_PROXY: ${{ vars.HTTP_PROXY }}
       HTTPS_PROXY: ${{ vars.HTTPS_PROXY }}
@@ -170,6 +171,22 @@ jobs:
           echo "IPFS_IMAGE_EFFECTIVE=${IPFS_IMAGE_EFFECTIVE}" >> "$GITHUB_ENV"
           echo "Using MYSQL_IMAGE=${MYSQL_IMAGE_EFFECTIVE}"
           echo "Using IPFS_IMAGE=${IPFS_IMAGE_EFFECTIVE}"
+
+      - name: Guard mirror images for prod
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "${MYSQL_IMAGE_EFFECTIVE:-}" ] || [ -z "${IPFS_IMAGE_EFFECTIVE:-}" ]; then
+            echo "Resolved images are empty."
+            exit 1
+          fi
+
+          if [[ "${MYSQL_IMAGE_EFFECTIVE}" == "mysql:8.0" ]] || [[ "${IPFS_IMAGE_EFFECTIVE}" == "ipfs/kubo:latest" ]]; then
+            echo "Still using Docker Hub defaults in prod."
+            echo "Please set environment vars MYSQL_IMAGE_MIRROR and IPFS_IMAGE_MIRROR in GitHub Environment 'ecs_prod'."
+            exit 1
+          fi
 
       - name: Write .env for compose
         shell: bash
