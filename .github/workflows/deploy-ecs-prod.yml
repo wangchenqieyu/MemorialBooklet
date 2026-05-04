@@ -152,18 +152,49 @@ jobs:
           echo "Logging in to ACR: ${ACR_REGISTRY}"
           echo "${ACR_PASSWORD}" | docker login "${ACR_REGISTRY}" --username "${ACR_USERNAME}" --password-stdin
 
+      - name: Resolve image source (prefer ACR mirror)
+        shell: bash
+        env:
+          MYSQL_IMAGE_DEFAULT: ${{ vars.MYSQL_IMAGE || 'mysql:8.0' }}
+          IPFS_IMAGE_DEFAULT: ${{ vars.IPFS_IMAGE || 'ipfs/kubo:latest' }}
+          MYSQL_IMAGE_MIRROR: ${{ vars.MYSQL_IMAGE_MIRROR || '' }}
+          IPFS_IMAGE_MIRROR: ${{ vars.IPFS_IMAGE_MIRROR || '' }}
+        run: |
+          set -euo pipefail
+
+          MYSQL_IMAGE_EFFECTIVE="${MYSQL_IMAGE_DEFAULT}"
+          IPFS_IMAGE_EFFECTIVE="${IPFS_IMAGE_DEFAULT}"
+
+          if curl -fsS --connect-timeout 5 --max-time 12 https://registry-1.docker.io/v2/ >/dev/null 2>&1; then
+            echo "Docker Hub reachable. Using default image sources."
+          else
+            echo "Docker Hub unreachable. Trying ACR mirror images if configured."
+            if [ -n "${MYSQL_IMAGE_MIRROR}" ]; then
+              MYSQL_IMAGE_EFFECTIVE="${MYSQL_IMAGE_MIRROR}"
+            fi
+            if [ -n "${IPFS_IMAGE_MIRROR}" ]; then
+              IPFS_IMAGE_EFFECTIVE="${IPFS_IMAGE_MIRROR}"
+            fi
+          fi
+
+          echo "MYSQL_IMAGE_EFFECTIVE=${MYSQL_IMAGE_EFFECTIVE}" >> "$GITHUB_ENV"
+          echo "IPFS_IMAGE_EFFECTIVE=${IPFS_IMAGE_EFFECTIVE}" >> "$GITHUB_ENV"
+          echo "Using MYSQL_IMAGE=${MYSQL_IMAGE_EFFECTIVE}"
+          echo "Using IPFS_IMAGE=${IPFS_IMAGE_EFFECTIVE}"
+
       - name: Write .env for compose
         shell: bash
         run: |
-          cat > .env <<'EOF'
+          set -euo pipefail
+          cat > .env <<EOF
           APP_PORT=${{ vars.APP_PORT || '8081' }}
           MYSQL_HOST_PORT=${{ vars.MYSQL_HOST_PORT || '3307' }}
           MYSQL_DATABASE=${{ vars.MYSQL_DATABASE || 'family_tree' }}
           MYSQL_ROOT_PASSWORD=${{ secrets.MYSQL_ROOT_PASSWORD }}
           MYSQL_APP_USER=${{ vars.MYSQL_APP_USER || 'root' }}
           MYSQL_APP_PASSWORD=${{ secrets.MYSQL_APP_PASSWORD }}
-          MYSQL_IMAGE=${{ vars.MYSQL_IMAGE || 'mysql:8.0' }}
-          IPFS_IMAGE=${{ vars.IPFS_IMAGE || 'ipfs/kubo:latest' }}
+          MYSQL_IMAGE=${MYSQL_IMAGE_EFFECTIVE}
+          IPFS_IMAGE=${IPFS_IMAGE_EFFECTIVE}
           CONFLUX_RPC_URL=${{ vars.CONFLUX_RPC_URL || 'https://evmtestnet.confluxrpc.com' }}
           CONFLUX_PRIVATE_KEY=${{ secrets.CONFLUX_PRIVATE_KEY }}
           CONFLUX_CONTRACT_ADDRESS=${{ secrets.CONFLUX_CONTRACT_ADDRESS }}
