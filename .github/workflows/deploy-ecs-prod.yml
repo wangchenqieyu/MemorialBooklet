@@ -162,20 +162,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          MYSQL_IMAGE_EFFECTIVE="${MYSQL_IMAGE_DEFAULT}"
-          IPFS_IMAGE_EFFECTIVE="${IPFS_IMAGE_DEFAULT}"
-
-          if curl -fsS --connect-timeout 5 --max-time 12 https://registry-1.docker.io/v2/ >/dev/null 2>&1; then
-            echo "Docker Hub reachable. Using default image sources."
-          else
-            echo "Docker Hub unreachable. Trying ACR mirror images if configured."
-            if [ -n "${MYSQL_IMAGE_MIRROR}" ]; then
-              MYSQL_IMAGE_EFFECTIVE="${MYSQL_IMAGE_MIRROR}"
-            fi
-            if [ -n "${IPFS_IMAGE_MIRROR}" ]; then
-              IPFS_IMAGE_EFFECTIVE="${IPFS_IMAGE_MIRROR}"
-            fi
-          fi
+          # Always prefer mirror values when configured; otherwise fall back to defaults.
+          MYSQL_IMAGE_EFFECTIVE="${MYSQL_IMAGE_MIRROR:-${MYSQL_IMAGE_DEFAULT}}"
+          IPFS_IMAGE_EFFECTIVE="${IPFS_IMAGE_MIRROR:-${IPFS_IMAGE_DEFAULT}}"
 
           echo "MYSQL_IMAGE_EFFECTIVE=${MYSQL_IMAGE_EFFECTIVE}" >> "$GITHUB_ENV"
           echo "IPFS_IMAGE_EFFECTIVE=${IPFS_IMAGE_EFFECTIVE}" >> "$GITHUB_ENV"
@@ -216,8 +205,11 @@ jobs:
             COMPOSE_CMD="docker-compose"
           fi
 
+          # Print resolved image names from compose config for debugging.
+          $COMPOSE_CMD --env-file .env config | grep -E "image:\s" || true
+
           for i in 1 2 3; do
-            if $COMPOSE_CMD pull --ignore-buildable; then
+            if $COMPOSE_CMD --env-file .env pull --ignore-buildable; then
               break
             fi
 
@@ -230,5 +222,5 @@ jobs:
             sleep 10
           done
 
-          $COMPOSE_CMD up -d --build
-          $COMPOSE_CMD ps
+          $COMPOSE_CMD --env-file .env up -d --build
+          $COMPOSE_CMD --env-file .env ps
