@@ -245,8 +245,8 @@ jobs:
         continue-on-error: true
         env:
           IPFS_IMAGE_MIRROR: ${{ vars.IPFS_IMAGE_MIRROR || '' }}
-          IPFS_IMAGE_DEFAULT: ${{ vars.IPFS_IMAGE || 'ipfs/kubo:latest' }}
-          IPFS_IMAGE_CANDIDATES: ${{ vars.IPFS_IMAGE_CANDIDATES || 'ghcr.io/ipfs/kubo:latest,quay.io/ipfs/kubo:latest,docker.m.daocloud.io/ipfs/kubo:latest' }}
+          IPFS_IMAGE_DEFAULT: ${{ vars.IPFS_IMAGE || 'ghcr.io/ipfs/kubo:v0.30.0' }}
+          IPFS_IMAGE_CANDIDATES: ${{ vars.IPFS_IMAGE_CANDIDATES || 'ghcr.io/ipfs/kubo:v0.30.0,ghcr.io/ipfs/kubo:latest,quay.io/ipfs/kubo:latest,docker.m.daocloud.io/ipfs/kubo:latest' }}
         run: |
           set -euo pipefail
 
@@ -301,8 +301,8 @@ jobs:
       - name: Resolve image source (prefer ACR mirror)
         shell: bash
         env:
-          MYSQL_IMAGE_DEFAULT: ${{ vars.MYSQL_IMAGE || 'mysql:8.0' }}
-          IPFS_IMAGE_DEFAULT: ${{ vars.IPFS_IMAGE || 'ipfs/kubo:latest' }}
+          MYSQL_IMAGE_DEFAULT: ${{ vars.MYSQL_IMAGE || 'docker.m.daocloud.io/library/mysql:8.0' }}
+          IPFS_IMAGE_DEFAULT: ${{ vars.IPFS_IMAGE || 'ghcr.io/ipfs/kubo:v0.30.0' }}
           MYSQL_IMAGE_MIRROR: ${{ vars.MYSQL_IMAGE_MIRROR || '' }}
           IPFS_IMAGE_MIRROR: ${{ vars.IPFS_IMAGE_MIRROR || '' }}
         run: |
@@ -332,6 +332,17 @@ jobs:
 
           echo "Resolved MYSQL_IMAGE source=${MYSQL_IMAGE_SOURCE} value=${MYSQL_IMAGE_EFFECTIVE}"
           echo "Resolved IPFS_IMAGE source=${IPFS_IMAGE_SOURCE} value=${IPFS_IMAGE_EFFECTIVE}"
+
+      - name: Preflight resolved image reachability
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Preflight manifest: ${MYSQL_IMAGE_EFFECTIVE}"
+          timeout 25 docker manifest inspect "${MYSQL_IMAGE_EFFECTIVE}" >/dev/null
+
+          echo "Preflight manifest: ${IPFS_IMAGE_EFFECTIVE}"
+          timeout 25 docker manifest inspect "${IPFS_IMAGE_EFFECTIVE}" >/dev/null
 
       - name: Guard mirror images for prod
         if: env.ENFORCE_MIRROR_GUARD == 'true'

@@ -25,7 +25,7 @@ services:
       - family-net
 
   mysql-docker:
-    image: ${MYSQL_IMAGE:-mysql:8.0}
+    image: ${MYSQL_IMAGE:-docker.m.daocloud.io/library/mysql:8.0}
     container_name: family_tree_db
     restart: always
     environment:
@@ -42,7 +42,7 @@ services:
       - family-net
 
   ipfs-node:
-    image: ${IPFS_IMAGE:-ipfs/kubo:latest}
+    image: ${IPFS_IMAGE:-ghcr.io/ipfs/kubo:v0.30.0}
     container_name: ipfs_node
     restart: always
     command: daemon --enable-pubsub-experiment
