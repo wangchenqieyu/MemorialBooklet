@@ -246,7 +246,7 @@ jobs:
         env:
           IPFS_IMAGE_MIRROR: ${{ vars.IPFS_IMAGE_MIRROR || '' }}
           IPFS_IMAGE_DEFAULT: ${{ vars.IPFS_IMAGE || 'ghcr.io/ipfs/kubo:v0.30.0' }}
-          IPFS_IMAGE_CANDIDATES: ${{ vars.IPFS_IMAGE_CANDIDATES || 'ghcr.io/ipfs/kubo:v0.30.0,ghcr.io/ipfs/kubo:latest,quay.io/ipfs/kubo:latest,docker.m.daocloud.io/ipfs/kubo:latest' }}
+          IPFS_IMAGE_CANDIDATES: ${{ vars.IPFS_IMAGE_CANDIDATES || 'ghcr.io/ipfs/kubo:v0.30.0,ghcr.io/ipfs/kubo:latest,quay.io/ipfs/kubo:latest' }}
         run: |
           set -euo pipefail
 
@@ -315,8 +315,16 @@ jobs:
             IPFS_IMAGE_EFFECTIVE="${IPFS_IMAGE_PROBED}"
             IPFS_IMAGE_SOURCE="probe"
           elif [ -n "${IPFS_IMAGE_MIRROR:-}" ]; then
-            IPFS_IMAGE_EFFECTIVE="${IPFS_IMAGE_MIRROR}"
-            IPFS_IMAGE_SOURCE="mirror"
+            # Mirror is configured: verify it first, otherwise auto-fallback to default.
+            if timeout 20 docker manifest inspect "${IPFS_IMAGE_MIRROR}" >/dev/null 2>&1; then
+              IPFS_IMAGE_EFFECTIVE="${IPFS_IMAGE_MIRROR}"
+              IPFS_IMAGE_SOURCE="mirror"
+            else
+              echo "WARN: IPFS_IMAGE_MIRROR is not reachable: ${IPFS_IMAGE_MIRROR}"
+              echo "WARN: Falling back to default IPFS image: ${IPFS_IMAGE_DEFAULT}"
+              IPFS_IMAGE_EFFECTIVE="${IPFS_IMAGE_DEFAULT}"
+              IPFS_IMAGE_SOURCE="default_fallback"
+            fi
           else
             IPFS_IMAGE_EFFECTIVE="${IPFS_IMAGE_DEFAULT}"
             IPFS_IMAGE_SOURCE="default"
