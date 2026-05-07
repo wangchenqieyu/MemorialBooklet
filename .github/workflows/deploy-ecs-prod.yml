@@ -197,7 +197,7 @@ jobs:
         env:
           ACR_REGISTRY: ${{ vars.ACR_REGISTRY }}
           ACR_USERNAME: ${{ secrets.ACR_USERNAME || vars.ACR_USERNAME || '' }}
-          ACR_PASSWORD: ${{ secrets.ACR_PASSWORD || vars.ACR_PASSWORD || '' }}
+          ACR_PASSWORD: ${{ secrets.ACR_PASSWORD || '' }}
         run: |
           set -euo pipefail
 
@@ -220,7 +220,7 @@ jobs:
         env:
           ACR_REGISTRY: ${{ vars.ACR_REGISTRY }}
           ACR_USERNAME: ${{ secrets.ACR_USERNAME || vars.ACR_USERNAME || '' }}
-          ACR_PASSWORD: ${{ secrets.ACR_PASSWORD || vars.ACR_PASSWORD || '' }}
+          ACR_PASSWORD: ${{ secrets.ACR_PASSWORD || '' }}
           MYSQL_IMAGE_MIRROR: ${{ vars.MYSQL_IMAGE_MIRROR || '' }}
           IPFS_IMAGE_MIRROR: ${{ vars.IPFS_IMAGE_MIRROR || '' }}
           IPFS_IMAGE_CANDIDATES: ${{ vars.IPFS_IMAGE_CANDIDATES || '' }}
