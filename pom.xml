@@ -29,6 +29,7 @@
     <properties>
         <java.version>21</java.version>
         <spring-modulith.version>1.4.3</spring-modulith.version>
+        <graphql.codegen.skip>true</graphql.codegen.skip>
     </properties>
 
     <repositories>
@@ -323,6 +324,7 @@
                             <goal>generate</goal>
                         </goals>
                         <configuration>
+                            <skip>${graphql.codegen.skip}</skip>
                             <schemaPaths>
                                 <param>src/main/resources/graphql-client</param>
                             </schemaPaths>

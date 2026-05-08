@@ -3,7 +3,7 @@ WORKDIR /workspace
 
 COPY pom.xml ./
 COPY src ./src
-RUN mvn -B -DskipTests package
+RUN mvn -B -DskipTests -Dgraphql.codegen.skip=true package
 
 FROM eclipse-temurin:21-jre
 WORKDIR /app
@@ -12,4 +12,3 @@ COPY --from=build /workspace/target/*.jar /app/app.jar
 EXPOSE 8081
 
 ENTRYPOINT ["java", "-jar", "/app/app.jar"]
-
