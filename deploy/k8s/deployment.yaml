@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: memorialbooklet-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: memorialbooklet-app
+  template:
+    metadata:
+      labels:
+        app: memorialbooklet-app
+    spec:
+      containers:
+        - name: app
+          image: memorialbooklet:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8081
+          envFrom:
+            - configMapRef:
+                name: memorialbooklet-config
+            - secretRef:
+                name: memorialbooklet-secret
+          env:
+            - name: SERVER_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: memorialbooklet-config
+                  key: APP_PORT
+            - name: SPRING_DATASOURCE_URL
+              value: jdbc:mysql://mysql-docker:3306/$(MYSQL_DATABASE)?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                configMapKeyRef:
+                  name: memorialbooklet-config
+                  key: MYSQL_APP_USER
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: memorialbooklet-secret
+                  key: MYSQL_APP_PASSWORD
+

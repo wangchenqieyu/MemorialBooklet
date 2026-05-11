@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: memorialbooklet-config
+data:
+  SPRING_PROFILES_ACTIVE: "prod"
+  APP_PORT: "8081"
+  MYSQL_DATABASE: "family_tree"
+  MYSQL_APP_USER: "root"
+  CONFLUX_RPC_URL: "https://evmtestnet.confluxrpc.com"
+  IPFS_MULTI_ADDRESS: "/dns4/ipfs-node/tcp/5001"
+  IPFS_API_PORT: "5001"
+  IPFS_GATEWAY_PORT: "8080"
+  IPFS_SWARM_PORT: "4001"
+
