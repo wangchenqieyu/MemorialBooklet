@@ -6,6 +6,7 @@ services:
     image: memorialbooklet:latest
     container_name: memorial_booklet_app
     restart: always
+    platform: linux/amd64
     depends_on:
       - mysql-docker
       - ipfs-node
@@ -43,7 +44,8 @@ services:
 
   ipfs-node:
     image: ${IPFS_IMAGE:-ghcr.io/ipfs/kubo:v0.30.0}
-    container_name: ipfs_node
+    container_name: ipfs-node
+    platform: linux/amd64
     restart: always
     command: daemon --enable-pubsub-experiment
     ports:
