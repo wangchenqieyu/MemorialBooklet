@@ -222,7 +222,7 @@ jobs:
           ACR_USERNAME: ${{ secrets.ACR_USERNAME || vars.ACR_USERNAME || '' }}
           ACR_PASSWORD: ${{ secrets.ACR_PASSWORD || '' }}
           MYSQL_IMAGE_MIRROR: ${{ vars.MYSQL_IMAGE_MIRROR || '' }}
-          IPFS_IMAGE_MIRROR: ${{ vars.IPFS_IMAGE_MIRROR || '' }}
+          IPFS_IMAGE_MIRROR: ${{ vars.IPFS_IMAGE_MIRROR || 'crpi-5cc0lfjs4hlv9ixx.cn-hangzhou.personal.cr.aliyuncs.com/memorial_booklet/app:ipfs-kubo-v0.30.0-amd64' }}
           IPFS_IMAGE_CANDIDATES: ${{ vars.IPFS_IMAGE_CANDIDATES || '' }}
         run: |
           set -euo pipefail
@@ -244,7 +244,7 @@ jobs:
         shell: bash
         continue-on-error: true
         env:
-          IPFS_IMAGE_MIRROR: ${{ vars.IPFS_IMAGE_MIRROR || '' }}
+          IPFS_IMAGE_MIRROR: ${{ vars.IPFS_IMAGE_MIRROR || 'crpi-5cc0lfjs4hlv9ixx.cn-hangzhou.personal.cr.aliyuncs.com/memorial_booklet/app:ipfs-kubo-v0.30.0-amd64' }}
           IPFS_IMAGE_DEFAULT: ${{ vars.IPFS_IMAGE || 'ghcr.io/ipfs/kubo:v0.30.0' }}
           IPFS_IMAGE_CANDIDATES: ${{ vars.IPFS_IMAGE_CANDIDATES || 'ghcr.io/ipfs/kubo:v0.30.0,ghcr.io/ipfs/kubo:latest,quay.io/ipfs/kubo:latest' }}
         run: |
@@ -304,7 +304,7 @@ jobs:
           MYSQL_IMAGE_DEFAULT: ${{ vars.MYSQL_IMAGE || 'docker.m.daocloud.io/library/mysql:8.0' }}
           IPFS_IMAGE_DEFAULT: ${{ vars.IPFS_IMAGE || 'ghcr.io/ipfs/kubo:v0.30.0' }}
           MYSQL_IMAGE_MIRROR: ${{ vars.MYSQL_IMAGE_MIRROR || '' }}
-          IPFS_IMAGE_MIRROR: ${{ vars.IPFS_IMAGE_MIRROR || '' }}
+          IPFS_IMAGE_MIRROR: ${{ vars.IPFS_IMAGE_MIRROR || 'crpi-5cc0lfjs4hlv9ixx.cn-hangzhou.personal.cr.aliyuncs.com/memorial_booklet/app:ipfs-kubo-v0.30.0-amd64' }}
         run: |
           set -euo pipefail
 
