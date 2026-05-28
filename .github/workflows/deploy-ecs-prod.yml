@@ -352,6 +352,15 @@ jobs:
           echo "Preflight manifest: ${IPFS_IMAGE_EFFECTIVE}"
           timeout 25 docker manifest inspect "${IPFS_IMAGE_EFFECTIVE}" >/dev/null
 
+          # Explicit arch gate: avoid late failure at compose up when image exists but arch mismatches.
+          echo "Preflight platform pull: ${IPFS_IMAGE_EFFECTIVE} (linux/amd64)"
+          if ! timeout 60 docker pull --platform linux/amd64 "${IPFS_IMAGE_EFFECTIVE}" >/dev/null; then
+            echo "ERROR: IPFS image is not pullable for linux/amd64: ${IPFS_IMAGE_EFFECTIVE}"
+            echo "Hint: set ecs_prod variable IPFS_IMAGE_MIRROR to an amd64 tag, for example:"
+            echo "  crpi-5cc0lfjs4hlv9ixx.cn-hangzhou.personal.cr.aliyuncs.com/memorial_booklet/app:ipfs-kubo-v0.30.0-amd64"
+            exit 1
+          fi
+
       - name: Guard mirror images for prod
         if: env.ENFORCE_MIRROR_GUARD == 'true'
         shell: bash
