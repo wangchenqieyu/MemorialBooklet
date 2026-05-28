@@ -234,10 +234,12 @@ jobs:
           echo "proxy.https_set=$([ -n "${HTTPS_PROXY:-}" ] && echo yes || echo no)"
           echo "proxy.no_proxy_set=$([ -n "${NO_PROXY:-}" ] && echo yes || echo no)"
           echo "acr.registry_set=$([ -n "${ACR_REGISTRY:-}" ] && echo yes || echo no)"
+          echo "acr.registry_value=${ACR_REGISTRY:-<empty>}"
           echo "acr.username_set=$([ -n "${ACR_USERNAME:-}" ] && echo yes || echo no)"
           echo "acr.password_set=$([ -n "${ACR_PASSWORD:-}" ] && echo yes || echo no)"
           echo "mirror.mysql_set=$([ -n "${MYSQL_IMAGE_MIRROR:-}" ] && echo yes || echo no)"
           echo "mirror.ipfs_set=$([ -n "${IPFS_IMAGE_MIRROR:-}" ] && echo yes || echo no)"
+          echo "mirror.ipfs_value=${IPFS_IMAGE_MIRROR:-<empty>}"
           echo "mirror.ipfs_candidates_set=$([ -n "${IPFS_IMAGE_CANDIDATES:-}" ] && echo yes || echo no)"
 
       - name: Probe reachable IPFS image (best effort)
@@ -252,6 +254,21 @@ jobs:
 
           normalize() {
             echo "$1" | xargs
+          }
+
+          classify_probe_error() {
+            local err="$1"
+            if echo "${err}" | grep -Eqi 'unauthorized|denied|authentication required|no basic auth credentials'; then
+              echo "auth_or_permission"
+            elif echo "${err}" | grep -Eqi 'no such host|lookup .* no such host'; then
+              echo "dns_or_domain"
+            elif echo "${err}" | grep -Eqi 'i/o timeout|context deadline exceeded|timeout'; then
+              echo "network_timeout"
+            elif echo "${err}" | grep -Eqi 'manifest unknown|not found|name unknown'; then
+              echo "manifest_or_repo_missing"
+            else
+              echo "unknown"
+            fi
           }
 
           ordered=""
@@ -282,13 +299,22 @@ jobs:
           for img in "${final_candidates[@]}"; do
             img="$(normalize "${img}")"
             [ -z "${img}" ] && continue
+            registry_host="${img%%/*}"
             echo "Probe IPFS image: ${img}"
-            if timeout 20 docker manifest inspect "${img}" >/dev/null 2>&1; then
+            echo "Probe registry host: ${registry_host}"
+
+            probe_err=""
+            if probe_err="$(timeout 20 docker manifest inspect "${img}" 2>&1 >/dev/null)"; then
               selected="${img}"
               echo "Probe OK: ${img}"
               break
             fi
+
+            reason="$(classify_probe_error "${probe_err}")"
             echo "Probe FAIL: ${img}"
+            echo "Probe reason: ${reason}"
+            echo "Probe stderr (last 8 lines):"
+            echo "${probe_err}" | tail -n 8
           done
 
           if [ -n "${selected}" ]; then
@@ -316,11 +342,14 @@ jobs:
             IPFS_IMAGE_SOURCE="probe"
           elif [ -n "${IPFS_IMAGE_MIRROR:-}" ]; then
             # Mirror is configured: verify it first, otherwise auto-fallback to default.
-            if timeout 20 docker manifest inspect "${IPFS_IMAGE_MIRROR}" >/dev/null 2>&1; then
+            mirror_err=""
+            if mirror_err="$(timeout 20 docker manifest inspect "${IPFS_IMAGE_MIRROR}" 2>&1 >/dev/null)"; then
               IPFS_IMAGE_EFFECTIVE="${IPFS_IMAGE_MIRROR}"
               IPFS_IMAGE_SOURCE="mirror"
             else
               echo "WARN: IPFS_IMAGE_MIRROR is not reachable: ${IPFS_IMAGE_MIRROR}"
+              echo "WARN: mirror inspect stderr (last 8 lines):"
+              echo "${mirror_err}" | tail -n 8
               echo "WARN: Falling back to default IPFS image: ${IPFS_IMAGE_DEFAULT}"
               IPFS_IMAGE_EFFECTIVE="${IPFS_IMAGE_DEFAULT}"
               IPFS_IMAGE_SOURCE="default_fallback"
