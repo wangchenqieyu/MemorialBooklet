@@ -198,22 +198,42 @@ jobs:
           ACR_REGISTRY: ${{ vars.ACR_REGISTRY }}
           ACR_USERNAME: ${{ secrets.ACR_USERNAME || vars.ACR_USERNAME || '' }}
           ACR_PASSWORD: ${{ secrets.ACR_PASSWORD || '' }}
+          IPFS_IMAGE_MIRROR: ${{ vars.IPFS_IMAGE_MIRROR || '' }}
         run: |
           set -euo pipefail
 
-          if [ -z "${ACR_REGISTRY:-}" ]; then
-            echo "ACR_REGISTRY is not set. Skip ACR login."
+          MIRROR_REGISTRY=""
+          if [ -n "${IPFS_IMAGE_MIRROR:-}" ]; then
+            MIRROR_REGISTRY="${IPFS_IMAGE_MIRROR%%/*}"
+          fi
+
+          LOGIN_HOSTS=""
+          for host in "${ACR_REGISTRY:-}" "${MIRROR_REGISTRY:-}"; do
+            [ -z "${host}" ] && continue
+            if ! echo "${LOGIN_HOSTS}" | tr ',' '\n' | grep -Fxq "${host}"; then
+              LOGIN_HOSTS="${LOGIN_HOSTS:+${LOGIN_HOSTS},}${host}"
+            fi
+          done
+
+          if [ -z "${LOGIN_HOSTS}" ]; then
+            echo "No registry host configured. Skip ACR login."
             exit 0
           fi
+
+          echo "ACR_REGISTRY=${ACR_REGISTRY:-<empty>}"
+          echo "MIRROR_REGISTRY=${MIRROR_REGISTRY:-<empty>}"
+          echo "LOGIN_HOSTS=${LOGIN_HOSTS}"
 
           if [ -z "${ACR_USERNAME:-}" ] || [ -z "${ACR_PASSWORD:-}" ]; then
-            echo "WARN: ACR_REGISTRY is set, but ACR_USERNAME/ACR_PASSWORD is missing."
-            echo "WARN: Continue without registry login (works only for public images)."
-            exit 0
+            echo "ERROR: ACR_USERNAME/ACR_PASSWORD missing for private mirror auth."
+            exit 1
           fi
 
-          echo "Logging in to ACR: ${ACR_REGISTRY}"
-          echo "${ACR_PASSWORD}" | docker login "${ACR_REGISTRY}" --username "${ACR_USERNAME}" --password-stdin
+          IFS=',' read -r -a hosts <<< "${LOGIN_HOSTS}"
+          for host in "${hosts[@]}"; do
+            echo "Logging in to registry host: ${host}"
+            echo "${ACR_PASSWORD}" | docker login "${host}" --username "${ACR_USERNAME}" --password-stdin
+          done
 
       - name: Print deploy context (safe debug)
         shell: bash
@@ -240,6 +260,9 @@ jobs:
           echo "mirror.mysql_set=$([ -n "${MYSQL_IMAGE_MIRROR:-}" ] && echo yes || echo no)"
           echo "mirror.ipfs_set=$([ -n "${IPFS_IMAGE_MIRROR:-}" ] && echo yes || echo no)"
           echo "mirror.ipfs_value=${IPFS_IMAGE_MIRROR:-<empty>}"
+          if [ -n "${IPFS_IMAGE_MIRROR:-}" ]; then
+            echo "mirror.ipfs_registry_host=${IPFS_IMAGE_MIRROR%%/*}"
+          fi
           echo "mirror.ipfs_candidates_set=$([ -n "${IPFS_IMAGE_CANDIDATES:-}" ] && echo yes || echo no)"
 
       - name: Probe reachable IPFS image (best effort)
@@ -334,25 +357,22 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Always prefer mirror values when configured; otherwise fall back to defaults.
           MYSQL_IMAGE_EFFECTIVE="${MYSQL_IMAGE_MIRROR:-${MYSQL_IMAGE_DEFAULT}}"
 
           if [ -n "${IPFS_IMAGE_PROBED:-}" ]; then
             IPFS_IMAGE_EFFECTIVE="${IPFS_IMAGE_PROBED}"
             IPFS_IMAGE_SOURCE="probe"
           elif [ -n "${IPFS_IMAGE_MIRROR:-}" ]; then
-            # Mirror is configured: verify it first, otherwise auto-fallback to default.
             mirror_err=""
             if mirror_err="$(timeout 20 docker manifest inspect "${IPFS_IMAGE_MIRROR}" 2>&1 >/dev/null)"; then
               IPFS_IMAGE_EFFECTIVE="${IPFS_IMAGE_MIRROR}"
               IPFS_IMAGE_SOURCE="mirror"
             else
-              echo "WARN: IPFS_IMAGE_MIRROR is not reachable: ${IPFS_IMAGE_MIRROR}"
-              echo "WARN: mirror inspect stderr (last 8 lines):"
+              echo "ERROR: IPFS_IMAGE_MIRROR is configured but not reachable/authenticated: ${IPFS_IMAGE_MIRROR}"
+              echo "ERROR: mirror inspect stderr (last 8 lines):"
               echo "${mirror_err}" | tail -n 8
-              echo "WARN: Falling back to default IPFS image: ${IPFS_IMAGE_DEFAULT}"
-              IPFS_IMAGE_EFFECTIVE="${IPFS_IMAGE_DEFAULT}"
-              IPFS_IMAGE_SOURCE="default_fallback"
+              echo "Fix ACR credentials/permissions or registry host mismatch, then rerun."
+              exit 1
             fi
           else
             IPFS_IMAGE_EFFECTIVE="${IPFS_IMAGE_DEFAULT}"
