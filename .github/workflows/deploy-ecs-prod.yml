@@ -4,6 +4,16 @@ on:
   push:
     branches:
       - 'release/*'
+  workflow_dispatch:
+    inputs:
+      force_build_app:
+        description: Force rebuild app image before deploy
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
 
 concurrency:
   group: ecs-prod-deploy
@@ -12,7 +22,6 @@ concurrency:
 permissions:
   contents: read
   actions: read
-  packages: write # Required to push docker image cache
 
 jobs:
   deploy:
@@ -23,8 +32,11 @@ jobs:
       HTTPS_PROXY: ${{ vars.HTTPS_PROXY }}
       NO_PROXY: ${{ vars.NO_PROXY }}
       ENFORCE_MIRROR_GUARD: ${{ vars.ENFORCE_MIRROR_GUARD || 'false' }}
-      # Define the base repository for the application image, using ACR variable.
-      APP_IMAGE_REPO: ${{ vars.ACR_REGISTRY }}/memorialbooklet/app
+      # Enable BuildKit to reuse layer cache when app image rebuild is needed.
+      DOCKER_BUILDKIT: '1'
+      COMPOSE_DOCKER_CLI_BUILD: '1'
+      APP_LOCAL_IMAGE: memorialbooklet:latest
+      APP_REBUILD_PATHS: ^Dockerfile$|^pom\.xml$|^src/|^\.dockerignore$
 
     steps:
       - name: Preflight GitHub connectivity (best effort)
@@ -40,25 +52,99 @@ jobs:
             fi
           done
 
-      - name: Checkout
+      - name: Pre-checkout network diagnostics (best effort)
+        shell: bash
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          echo "=== pre-checkout diagnostics ==="
+          date -u || true
+          uname -a || true
+          cat /etc/resolv.conf || true
+          env | egrep -i 'http_proxy|https_proxy|no_proxy' || true
+
+          echo "=== dns ==="
+          for host in github.com api.github.com; do
+            echo "host=${host}"
+            getent ahosts "${host}" | head -n 5 || true
+          done
+
+          echo "=== https ==="
+          curl -I --connect-timeout 8 --max-time 20 https://github.com || true
+          curl -I --connect-timeout 8 --max-time 20 https://api.github.com || true
+
+          echo "=== tls ==="
+          echo | openssl s_client -connect github.com:443 -servername github.com -brief || true
+
+          echo "=== git ==="
+          git --no-pager ls-remote https://github.com/${GITHUB_REPOSITORY}.git || true
+
+      - name: Checkout (attempt 1)
+        id: checkout_primary
         uses: actions/checkout@v4
+        continue-on-error: true
         with:
-          fetch-depth: 1
+          fetch-depth: 20
+
+      - name: Wait before checkout retry
+        if: steps.checkout_primary.outcome == 'failure'
+        shell: bash
+        run: sleep 20
+
+      - name: Checkout (attempt 2)
+        id: checkout_retry
+        if: steps.checkout_primary.outcome == 'failure'
+        uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          fetch-depth: 20
+
+      - name: Post-checkout-failure diagnostics (best effort)
+        if: steps.checkout_primary.outcome == 'failure' && steps.checkout_retry.outcome == 'failure'
+        shell: bash
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          echo "=== post-checkout diagnostics ==="
+          date -u || true
+          cat /etc/resolv.conf || true
+
+          for host in github.com api.github.com; do
+            echo "host=${host}"
+            getent ahosts "${host}" | head -n 5 || true
+          done
+
+          curl -I --connect-timeout 8 --max-time 20 https://github.com || true
+          curl -I --connect-timeout 8 --max-time 20 https://api.github.com || true
+          echo | openssl s_client -connect github.com:443 -servername github.com -brief || true
+          git --no-pager ls-remote https://github.com/${GITHUB_REPOSITORY}.git || true
+
+      - name: Fail if checkout could not be completed
+        if: steps.checkout_primary.outcome == 'failure' && steps.checkout_retry.outcome == 'failure'
+        shell: bash
+        run: |
+          echo "Both checkout attempts failed. See diagnostics above."
+          exit 1
 
       - name: Ensure Docker is installed
         shell: bash
         run: |
           set -euo pipefail
+
           if command -v docker >/dev/null 2>&1; then
             echo "Docker already installed."
           else
             echo "Docker not found. Installing..."
-            # (Installation logic remains the same)
+
             if command -v apt-get >/dev/null 2>&1; then
               export DEBIAN_FRONTEND=noninteractive
               apt-get update
               apt-get install -y ca-certificates curl gnupg lsb-release
-              apt-get install -y docker.io docker-compose-v2 || apt-get install -y docker.io docker-compose-plugin || apt-get install -y docker.io docker-compose
+
+              # Prefer distro packages (usually faster and reachable from Aliyun mirrors).
+              apt-get install -y docker.io docker-compose-v2 || \
+              apt-get install -y docker.io docker-compose-plugin || \
+              apt-get install -y docker.io docker-compose
             elif command -v dnf >/dev/null 2>&1; then
               dnf -y install dnf-plugins-core
               dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
@@ -72,8 +158,10 @@ jobs:
               exit 1
             fi
           fi
+
           if command -v systemctl >/dev/null 2>&1; then
-            systemctl enable docker && systemctl start docker
+            systemctl enable docker
+            systemctl start docker
           fi
 
       - name: Verify Docker
@@ -81,6 +169,7 @@ jobs:
         run: |
           set -euo pipefail
           docker version
+
           if docker compose version >/dev/null 2>&1; then
             docker compose version
           elif command -v docker-compose >/dev/null 2>&1; then
@@ -96,10 +185,12 @@ jobs:
           DOCKER_REGISTRY_MIRROR: ${{ vars.DOCKER_REGISTRY_MIRROR }}
         run: |
           set -euo pipefail
+
           if [ -z "${DOCKER_REGISTRY_MIRROR:-}" ]; then
             echo "DOCKER_REGISTRY_MIRROR is not set. Skip mirror config."
             exit 0
           fi
+
           echo "Configuring docker registry mirror: ${DOCKER_REGISTRY_MIRROR}"
           mkdir -p /etc/docker
           cat > /etc/docker/daemon.json <<EOF
@@ -107,39 +198,169 @@ jobs:
             "registry-mirrors": ["${DOCKER_REGISTRY_MIRROR}"]
           }
           EOF
+
           if command -v systemctl >/dev/null 2>&1; then
             systemctl restart docker
           else
             service docker restart
           fi
+
           docker info | grep -i "Registry Mirrors" -A2 || true
 
-      - name: Login to Alibaba Cloud ACR
+      - name: Login to Alibaba Cloud ACR (optional)
+        shell: bash
         env:
           ACR_REGISTRY: ${{ vars.ACR_REGISTRY }}
-          ACR_USERNAME: ${{ secrets.ACR_USERNAME }}
-          ACR_PASSWORD: ${{ secrets.ACR_PASSWORD }}
-        if: ${{ env.ACR_REGISTRY != '' && env.ACR_USERNAME != '' && env.ACR_PASSWORD != '' }}
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.ACR_REGISTRY }}
-          username: ${{ env.ACR_USERNAME }}
-          password: ${{ env.ACR_PASSWORD }}
+          ACR_USERNAME: ${{ secrets.ACR_USERNAME || vars.ACR_USERNAME || '' }}
+          ACR_PASSWORD: ${{ secrets.ACR_PASSWORD || '' }}
+          IPFS_IMAGE_MIRROR: ${{ vars.IPFS_IMAGE_MIRROR || '' }}
+        run: |
+          set -euo pipefail
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+          MIRROR_REGISTRY=""
+          if [ -n "${IPFS_IMAGE_MIRROR:-}" ]; then
+            MIRROR_REGISTRY="${IPFS_IMAGE_MIRROR%%/*}"
+          fi
 
-      - name: Build and push App Image with cache
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile
-          push: ${{ vars.ACR_REGISTRY != '' }}
-          tags: |
-            ${{ env.APP_IMAGE_REPO }}:${{ github.sha }}
-            ${{ env.APP_IMAGE_REPO }}:latest
-          cache-from: type=registry,ref=${{ env.APP_IMAGE_REPO }}:buildcache
-          cache-to: type=registry,ref=${{ env.APP_IMAGE_REPO }}:buildcache,mode=max
+          LOGIN_HOSTS=""
+          for host in "${ACR_REGISTRY:-}" "${MIRROR_REGISTRY:-}"; do
+            [ -z "${host}" ] && continue
+            if ! echo "${LOGIN_HOSTS}" | tr ',' '\n' | grep -Fxq "${host}"; then
+              LOGIN_HOSTS="${LOGIN_HOSTS:+${LOGIN_HOSTS},}${host}"
+            fi
+          done
+
+          if [ -z "${LOGIN_HOSTS}" ]; then
+            echo "No registry host configured. Skip ACR login."
+            exit 0
+          fi
+
+          echo "ACR_REGISTRY=${ACR_REGISTRY:-<empty>}"
+          echo "MIRROR_REGISTRY=${MIRROR_REGISTRY:-<empty>}"
+          echo "LOGIN_HOSTS=${LOGIN_HOSTS}"
+
+          if [ -z "${ACR_USERNAME:-}" ] || [ -z "${ACR_PASSWORD:-}" ]; then
+            echo "ERROR: ACR_USERNAME/ACR_PASSWORD missing for private mirror auth."
+            exit 1
+          fi
+
+          IFS=',' read -r -a hosts <<< "${LOGIN_HOSTS}"
+          for host in "${hosts[@]}"; do
+            echo "Logging in to registry host: ${host}"
+            echo "${ACR_PASSWORD}" | docker login "${host}" --username "${ACR_USERNAME}" --password-stdin
+          done
+
+      - name: Print deploy context (safe debug)
+        shell: bash
+        env:
+          ACR_REGISTRY: ${{ vars.ACR_REGISTRY }}
+          ACR_USERNAME: ${{ secrets.ACR_USERNAME || vars.ACR_USERNAME || '' }}
+          ACR_PASSWORD: ${{ secrets.ACR_PASSWORD || '' }}
+          MYSQL_IMAGE_MIRROR: ${{ vars.MYSQL_IMAGE_MIRROR || '' }}
+          IPFS_IMAGE_MIRROR: ${{ vars.IPFS_IMAGE_MIRROR || 'crpi-5cc0lfjs4hlv9ixx.cn-hangzhou.personal.cr.aliyuncs.com/memorial_booklet/app:ipfs-kubo-v0.30.0-amd64' }}
+          IPFS_IMAGE_CANDIDATES: ${{ vars.IPFS_IMAGE_CANDIDATES || '' }}
+        run: |
+          set -euo pipefail
+          echo "ref=${GITHUB_REF}"
+          echo "sha=${GITHUB_SHA}"
+          echo "runner=${RUNNER_NAME:-unknown} os=${RUNNER_OS:-unknown} arch=${RUNNER_ARCH:-unknown}"
+          echo "environment=ecs_prod"
+          echo "proxy.http_set=$([ -n "${HTTP_PROXY:-}" ] && echo yes || echo no)"
+          echo "proxy.https_set=$([ -n "${HTTPS_PROXY:-}" ] && echo yes || echo no)"
+          echo "proxy.no_proxy_set=$([ -n "${NO_PROXY:-}" ] && echo yes || echo no)"
+          echo "acr.registry_set=$([ -n "${ACR_REGISTRY:-}" ] && echo yes || echo no)"
+          echo "acr.registry_value=${ACR_REGISTRY:-<empty>}"
+          echo "acr.username_set=$([ -n "${ACR_USERNAME:-}" ] && echo yes || echo no)"
+          echo "acr.password_set=$([ -n "${ACR_PASSWORD:-}" ] && echo yes || echo no)"
+          echo "mirror.mysql_set=$([ -n "${MYSQL_IMAGE_MIRROR:-}" ] && echo yes || echo no)"
+          echo "mirror.ipfs_set=$([ -n "${IPFS_IMAGE_MIRROR:-}" ] && echo yes || echo no)"
+          echo "mirror.ipfs_value=${IPFS_IMAGE_MIRROR:-<empty>}"
+          if [ -n "${IPFS_IMAGE_MIRROR:-}" ]; then
+            echo "mirror.ipfs_registry_host=${IPFS_IMAGE_MIRROR%%/*}"
+          fi
+          echo "mirror.ipfs_candidates_set=$([ -n "${IPFS_IMAGE_CANDIDATES:-}" ] && echo yes || echo no)"
+
+      - name: Probe reachable IPFS image (best effort)
+        shell: bash
+        continue-on-error: true
+        env:
+          IPFS_IMAGE_MIRROR: ${{ vars.IPFS_IMAGE_MIRROR || 'crpi-5cc0lfjs4hlv9ixx.cn-hangzhou.personal.cr.aliyuncs.com/memorial_booklet/app:ipfs-kubo-v0.30.0-amd64' }}
+          IPFS_IMAGE_DEFAULT: ${{ vars.IPFS_IMAGE || 'ghcr.io/ipfs/kubo:v0.30.0' }}
+          IPFS_IMAGE_CANDIDATES: ${{ vars.IPFS_IMAGE_CANDIDATES || 'ghcr.io/ipfs/kubo:v0.30.0,ghcr.io/ipfs/kubo:latest,quay.io/ipfs/kubo:latest' }}
+        run: |
+          set -euo pipefail
+
+          normalize() {
+            echo "$1" | xargs
+          }
+
+          classify_probe_error() {
+            local err="$1"
+            if echo "${err}" | grep -Eqi 'unauthorized|denied|authentication required|no basic auth credentials'; then
+              echo "auth_or_permission"
+            elif echo "${err}" | grep -Eqi 'no such host|lookup .* no such host'; then
+              echo "dns_or_domain"
+            elif echo "${err}" | grep -Eqi 'i/o timeout|context deadline exceeded|timeout'; then
+              echo "network_timeout"
+            elif echo "${err}" | grep -Eqi 'manifest unknown|not found|name unknown'; then
+              echo "manifest_or_repo_missing"
+            else
+              echo "unknown"
+            fi
+          }
+
+          ordered=""
+          if [ -n "${IPFS_IMAGE_MIRROR:-}" ]; then
+            ordered="$(normalize "${IPFS_IMAGE_MIRROR}")"
+          fi
+
+          IFS=',' read -r -a raw_candidates <<< "${IPFS_IMAGE_CANDIDATES}"
+          for item in "${raw_candidates[@]}"; do
+            c="$(normalize "${item}")"
+            [ -z "${c}" ] && continue
+            if [ -z "${ordered}" ]; then
+              ordered="${c}"
+            elif ! echo "${ordered}" | tr ',' '\n' | grep -Fxq "${c}"; then
+              ordered="${ordered},${c}"
+            fi
+          done
+
+          d="$(normalize "${IPFS_IMAGE_DEFAULT}")"
+          if [ -n "${d}" ] && ! echo "${ordered}" | tr ',' '\n' | grep -Fxq "${d}"; then
+            ordered="${ordered},${d}"
+          fi
+
+          echo "IPFS candidate order: ${ordered}"
+
+          selected=""
+          IFS=',' read -r -a final_candidates <<< "${ordered}"
+          for img in "${final_candidates[@]}"; do
+            img="$(normalize "${img}")"
+            [ -z "${img}" ] && continue
+            registry_host="${img%%/*}"
+            echo "Probe IPFS image: ${img}"
+            echo "Probe registry host: ${registry_host}"
+
+            probe_err=""
+            if probe_err="$(timeout 20 docker manifest inspect "${img}" 2>&1 >/dev/null)"; then
+              selected="${img}"
+              echo "Probe OK: ${img}"
+              break
+            fi
+
+            reason="$(classify_probe_error "${probe_err}")"
+            echo "Probe FAIL: ${img}"
+            echo "Probe reason: ${reason}"
+            echo "Probe stderr (last 8 lines):"
+            echo "${probe_err}" | tail -n 8
+          done
+
+          if [ -n "${selected}" ]; then
+            echo "IPFS_IMAGE_PROBED=${selected}" >> "$GITHUB_ENV"
+            echo "Selected IPFS image by probe: ${selected}"
+          else
+            echo "::warning::No reachable IPFS image found from candidates; fallback will be used."
+          fi
 
       - name: Resolve image source (prefer ACR mirror)
         shell: bash
@@ -147,15 +368,87 @@ jobs:
           MYSQL_IMAGE_DEFAULT: ${{ vars.MYSQL_IMAGE || 'docker.m.daocloud.io/library/mysql:8.0' }}
           IPFS_IMAGE_DEFAULT: ${{ vars.IPFS_IMAGE || 'ghcr.io/ipfs/kubo:v0.30.0' }}
           MYSQL_IMAGE_MIRROR: ${{ vars.MYSQL_IMAGE_MIRROR || '' }}
-          IPFS_IMAGE_MIRROR: ${{ vars.IPFS_IMAGE_MIRROR || '' }}
+          IPFS_IMAGE_MIRROR: ${{ vars.IPFS_IMAGE_MIRROR || 'crpi-5cc0lfjs4hlv9ixx.cn-hangzhou.personal.cr.aliyuncs.com/memorial_booklet/app:ipfs-kubo-v0.30.0-amd64' }}
         run: |
           set -euo pipefail
+
           MYSQL_IMAGE_EFFECTIVE="${MYSQL_IMAGE_MIRROR:-${MYSQL_IMAGE_DEFAULT}}"
-          IPFS_IMAGE_EFFECTIVE="${IPFS_IMAGE_MIRROR:-${IPFS_IMAGE_DEFAULT}}"
+
+          if [ -n "${IPFS_IMAGE_PROBED:-}" ]; then
+            IPFS_IMAGE_EFFECTIVE="${IPFS_IMAGE_PROBED}"
+            IPFS_IMAGE_SOURCE="probe"
+          elif [ -n "${IPFS_IMAGE_MIRROR:-}" ]; then
+            mirror_err=""
+            if mirror_err="$(timeout 20 docker manifest inspect "${IPFS_IMAGE_MIRROR}" 2>&1 >/dev/null)"; then
+              IPFS_IMAGE_EFFECTIVE="${IPFS_IMAGE_MIRROR}"
+              IPFS_IMAGE_SOURCE="mirror"
+            else
+              echo "ERROR: IPFS_IMAGE_MIRROR is configured but not reachable/authenticated: ${IPFS_IMAGE_MIRROR}"
+              echo "ERROR: mirror inspect stderr (last 8 lines):"
+              echo "${mirror_err}" | tail -n 8
+              echo "Fix ACR credentials/permissions or registry host mismatch, then rerun."
+              exit 1
+            fi
+          else
+            IPFS_IMAGE_EFFECTIVE="${IPFS_IMAGE_DEFAULT}"
+            IPFS_IMAGE_SOURCE="default"
+          fi
+
+          MYSQL_IMAGE_SOURCE="default"
+          if [ -n "${MYSQL_IMAGE_MIRROR:-}" ]; then MYSQL_IMAGE_SOURCE="mirror"; fi
+
           echo "MYSQL_IMAGE_EFFECTIVE=${MYSQL_IMAGE_EFFECTIVE}" >> "$GITHUB_ENV"
           echo "IPFS_IMAGE_EFFECTIVE=${IPFS_IMAGE_EFFECTIVE}" >> "$GITHUB_ENV"
-          echo "Resolved MYSQL_IMAGE value=${MYSQL_IMAGE_EFFECTIVE}"
-          echo "Resolved IPFS_IMAGE value=${IPFS_IMAGE_EFFECTIVE}"
+          echo "MYSQL_IMAGE_SOURCE=${MYSQL_IMAGE_SOURCE}" >> "$GITHUB_ENV"
+          echo "IPFS_IMAGE_SOURCE=${IPFS_IMAGE_SOURCE}" >> "$GITHUB_ENV"
+
+          echo "Resolved MYSQL_IMAGE source=${MYSQL_IMAGE_SOURCE} value=${MYSQL_IMAGE_EFFECTIVE}"
+          echo "Resolved IPFS_IMAGE source=${IPFS_IMAGE_SOURCE} value=${IPFS_IMAGE_EFFECTIVE}"
+
+      - name: Preflight resolved image reachability
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Preflight manifest: ${MYSQL_IMAGE_EFFECTIVE}"
+          timeout 25 docker manifest inspect "${MYSQL_IMAGE_EFFECTIVE}" >/dev/null
+
+          echo "Preflight manifest: ${IPFS_IMAGE_EFFECTIVE}"
+          timeout 25 docker manifest inspect "${IPFS_IMAGE_EFFECTIVE}" >/dev/null
+
+          # Explicit arch gate: avoid late failure at compose up when image exists but arch mismatches.
+          echo "Preflight platform pull: ${IPFS_IMAGE_EFFECTIVE} (linux/amd64)"
+          if ! timeout 60 docker pull --platform linux/amd64 "${IPFS_IMAGE_EFFECTIVE}" >/dev/null; then
+            echo "ERROR: IPFS image is not pullable for linux/amd64: ${IPFS_IMAGE_EFFECTIVE}"
+            echo "Hint: set ecs_prod variable IPFS_IMAGE_MIRROR to an amd64 tag, for example:"
+            echo "  crpi-5cc0lfjs4hlv9ixx.cn-hangzhou.personal.cr.aliyuncs.com/memorial_booklet/app:ipfs-kubo-v0.30.0-amd64"
+            exit 1
+          fi
+
+      - name: Guard mirror images for prod
+        if: env.ENFORCE_MIRROR_GUARD == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Guard mode is enabled (ENFORCE_MIRROR_GUARD=true)."
+          echo "Guard check: MYSQL_IMAGE_EFFECTIVE=${MYSQL_IMAGE_EFFECTIVE:-<empty>}"
+          echo "Guard check: IPFS_IMAGE_EFFECTIVE=${IPFS_IMAGE_EFFECTIVE:-<empty>}"
+          echo "Guard check: MYSQL_IMAGE_SOURCE=${MYSQL_IMAGE_SOURCE:-unknown}"
+          echo "Guard check: IPFS_IMAGE_SOURCE=${IPFS_IMAGE_SOURCE:-unknown}"
+
+          if [ -z "${MYSQL_IMAGE_EFFECTIVE:-}" ] || [ -z "${IPFS_IMAGE_EFFECTIVE:-}" ]; then
+            echo "Resolved images are empty."
+            exit 1
+          fi
+
+          if [[ "${MYSQL_IMAGE_EFFECTIVE}" == "mysql:8.0" ]] || [[ "${IPFS_IMAGE_EFFECTIVE}" == "ipfs/kubo:latest" ]]; then
+            echo "Still using Docker Hub defaults with guard enabled."
+            echo "Set MYSQL_IMAGE_MIRROR and IPFS_IMAGE_MIRROR, or disable guard for non-prod."
+            exit 1
+          fi
+
+          echo "Guard check passed: non-default images are configured."
 
       - name: Write .env for compose
         shell: bash
@@ -165,15 +458,14 @@ jobs:
           APP_PORT=${{ vars.APP_PORT || '8081' }}
           MYSQL_HOST_PORT=${{ vars.MYSQL_HOST_PORT || '3307' }}
           MYSQL_DATABASE=${{ vars.MYSQL_DATABASE || 'family_tree' }}
-          MYSQL_ROOT_PASSWORD=${{ secrets.MYSQL_ROOT_PASSWORD || '123456' }}
+          MYSQL_ROOT_PASSWORD=${{ secrets.MYSQL_ROOT_PASSWORD || vars.MYSQL_ROOT_PASSWORD || '123456' }}
           MYSQL_APP_USER=${{ vars.MYSQL_APP_USER || 'root' }}
-          MYSQL_APP_PASSWORD=${{ secrets.MYSQL_APP_PASSWORD || '123456' }}
-          MYSQL_IMAGE=${{ env.MYSQL_IMAGE_EFFECTIVE }}
-          IPFS_IMAGE=${{ env.IPFS_IMAGE_EFFECTIVE }}
-          APP_IMAGE=${{ env.APP_IMAGE_REPO }}:${{ github.sha }}
+          MYSQL_APP_PASSWORD=${{ secrets.MYSQL_APP_PASSWORD || vars.MYSQL_APP_PASSWORD || '123456' }}
+          MYSQL_IMAGE=${MYSQL_IMAGE_EFFECTIVE}
+          IPFS_IMAGE=${IPFS_IMAGE_EFFECTIVE}
           CONFLUX_RPC_URL=${{ vars.CONFLUX_RPC_URL || 'https://evmtestnet.confluxrpc.com' }}
-          CONFLUX_PRIVATE_KEY=${{ secrets.CONFLUX_PRIVATE_KEY || '' }}
-          CONFLUX_CONTRACT_ADDRESS=${{ secrets.CONFLUX_CONTRACT_ADDRESS || '' }}
+          CONFLUX_PRIVATE_KEY=${{ secrets.CONFLUX_PRIVATE_KEY || vars.CONFLUX_PRIVATE_KEY || '' }}
+          CONFLUX_CONTRACT_ADDRESS=${{ secrets.CONFLUX_CONTRACT_ADDRESS || vars.CONFLUX_CONTRACT_ADDRESS || '' }}
           IPFS_MULTI_ADDRESS=${{ vars.IPFS_MULTI_ADDRESS || '/dns4/ipfs-node/tcp/5001' }}
           IPFS_API_PORT=${{ vars.IPFS_API_PORT || '5001' }}
           IPFS_GATEWAY_PORT=${{ vars.IPFS_GATEWAY_PORT || '8080' }}
@@ -181,22 +473,167 @@ jobs:
           SPRING_PROFILES_ACTIVE=${{ vars.SPRING_PROFILES_ACTIVE || 'dev' }}
           EOF
 
-      - name: Deploy with docker compose
+      - name: Decide whether app image needs rebuild
+        id: app_build_decision
+        shell: bash
+        env:
+          FORCE_BUILD_APP: ${{ github.event.inputs.force_build_app || 'false' }}
+        run: |
+          set -euo pipefail
+
+          rebuild="false"
+          reasons=""
+
+          add_reason() {
+            local value="$1"
+            if [ -z "${reasons}" ]; then
+              reasons="${value}"
+            else
+              reasons="${reasons},${value}"
+            fi
+          }
+
+          if [ "${FORCE_BUILD_APP}" = "true" ]; then
+            rebuild="true"
+            add_reason "manual_force"
+          fi
+
+          if ! docker image inspect "${APP_LOCAL_IMAGE}" >/dev/null 2>&1; then
+            rebuild="true"
+            add_reason "local_image_missing"
+          fi
+
+          if [ "${rebuild}" != "true" ] && [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            changed_files=""
+            before_sha="${{ github.event.before }}"
+
+            if [ -n "${before_sha}" ] && [ "${before_sha}" != "0000000000000000000000000000000000000000" ] && git cat-file -e "${before_sha}^{commit}" 2>/dev/null; then
+              changed_files="$(git diff --name-only "${before_sha}" "${GITHUB_SHA}" || true)"
+            else
+              changed_files="$(git show --name-only --pretty='' "${GITHUB_SHA}" || true)"
+            fi
+
+            echo "changed files in push range:"
+            if [ -n "${changed_files}" ]; then
+              echo "${changed_files}" | sed 's/^/  - /'
+            else
+              echo "  - <none>"
+            fi
+
+            if echo "${changed_files}" | grep -Eq "${APP_REBUILD_PATHS}"; then
+              rebuild="true"
+              add_reason "app_sources_changed"
+            fi
+          fi
+
+          if [ "${rebuild}" = "true" ]; then
+            echo "rebuild=true" >> "$GITHUB_OUTPUT"
+            echo "reason=${reasons}" >> "$GITHUB_OUTPUT"
+            echo "APP_BUILD_REQUIRED=true" >> "$GITHUB_ENV"
+            echo "App image rebuild required: ${reasons}"
+          else
+            echo "rebuild=false" >> "$GITHUB_OUTPUT"
+            echo "reason=local_image_reuse" >> "$GITHUB_OUTPUT"
+            echo "APP_BUILD_REQUIRED=false" >> "$GITHUB_ENV"
+            echo "Reusing local app image: ${APP_LOCAL_IMAGE}"
+          fi
+
+      - name: Build app image only when required
+        if: steps.app_build_decision.outputs.rebuild == 'true'
         shell: bash
         run: |
           set -euo pipefail
+
           if docker compose version >/dev/null 2>&1; then
             COMPOSE_CMD="docker compose"
           else
             COMPOSE_CMD="docker-compose"
           fi
-          echo "Using compose command: ${COMPOSE_CMD}"
 
-          # Pull all required images, including the newly built app image
-          $COMPOSE_CMD --env-file .env pull
+          echo "Building app image (${APP_LOCAL_IMAGE}) because: ${{ steps.app_build_decision.outputs.reason }}"
+          $COMPOSE_CMD --env-file .env build app
 
-          # Start services without building locally
+      - name: Deploy with docker compose
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if docker compose version >/dev/null 2>&1; then
+            COMPOSE_CMD="docker compose"
+          else
+            COMPOSE_CMD="docker-compose"
+          fi
+
+          echo "compose.cmd=${COMPOSE_CMD}"
+          echo "app.build_required=${APP_BUILD_REQUIRED:-false}"
+          echo "app.build_reason=${{ steps.app_build_decision.outputs.reason }}"
+
+          # Print resolved image names from compose config for debugging.
+          COMPOSE_IMAGES="$($COMPOSE_CMD --env-file .env config | awk '/image:/ {print $2}')"
+          if [ -n "${COMPOSE_IMAGES}" ]; then
+            echo "compose.images:"
+            echo "${COMPOSE_IMAGES}" | sed 's/^/  - /'
+          else
+            echo "WARN: no image found from compose config"
+          fi
+
+          diagnose_pull_failure() {
+            echo "---- pull diagnostics ----"
+            echo "time=$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+            echo "proxy.http_set=$([ -n "${HTTP_PROXY:-}" ] && echo yes || echo no)"
+            echo "proxy.https_set=$([ -n "${HTTPS_PROXY:-}" ] && echo yes || echo no)"
+            echo "proxy.no_proxy_set=$([ -n "${NO_PROXY:-}" ] && echo yes || echo no)"
+            echo "resolv.conf:"
+            cat /etc/resolv.conf || true
+
+            if command -v getent >/dev/null 2>&1; then
+              for host in registry-1.docker.io auth.docker.io production.cloudflare.docker.com github.com; do
+                echo "dns.getent ${host}:"
+                getent ahosts "${host}" | head -n 3 || true
+              done
+            fi
+
+            if command -v curl >/dev/null 2>&1; then
+              for url in https://registry-1.docker.io/v2/ https://auth.docker.io/token https://github.com; do
+                echo "http.check ${url}"
+                curl -I --connect-timeout 8 --max-time 20 "${url}" | head -n 5 || true
+              done
+            fi
+
+            if [ -n "${COMPOSE_IMAGES}" ]; then
+              echo "image.manifest.precheck:"
+              while IFS= read -r img; do
+                [ -z "${img}" ] && continue
+                if [ "${img}" = "memorialbooklet:latest" ]; then
+                  echo "  SKIP ${img} (local build image)"
+                  continue
+                fi
+                if docker manifest inspect "${img}" >/dev/null 2>&1; then
+                  echo "  OK ${img}"
+                else
+                  echo "  FAIL ${img}"
+                fi
+              done <<< "${COMPOSE_IMAGES}"
+            fi
+            echo "---- end diagnostics ----"
+          }
+
+          for i in 1 2 3; do
+            if $COMPOSE_CMD --env-file .env pull --ignore-buildable; then
+              break
+            fi
+
+            echo "Image pull failed on attempt ${i}/3"
+            diagnose_pull_failure
+
+            if [ "$i" -eq 3 ]; then
+              echo "Image pull failed after 3 attempts."
+              exit 1
+            fi
+
+            echo "Image pull failed, retrying in 10s... (attempt $((i + 1))/3)"
+            sleep 10
+          done
+
           $COMPOSE_CMD --env-file .env up -d
-
-          # Display running containers
           $COMPOSE_CMD --env-file .env ps
