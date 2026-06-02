@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: memorialbooklet:latest
+    image: ${APP_IMAGE:-memorialbooklet:latest}
     container_name: memorial_booklet_app
     restart: always
     platform: linux/amd64
