@@ -102,10 +102,21 @@ public class FamilyTreeService {
         }
     }
 
+    private String validateAndNormalizeName(String name) {
+        String normalized = name == null ? null : name.trim();
+        if (normalized == null || normalized.isEmpty()) {
+            throw new IllegalArgumentException("姓名不能为空");
+        }
+        if (personMapper.selectByName(normalized) != null) {
+            throw new IllegalArgumentException("姓名已存在: " + normalized);
+        }
+        return normalized;
+    }
+
     @Transactional
     public Person createPerson(String name, String password, Integer gender) {
         Person p = new Person();
-        p.setName(name);
+        p.setName(validateAndNormalizeName(name));
         p.setLevel(0);
         p.setGender(gender != null ? String.valueOf(gender) : null);
 
@@ -126,7 +137,7 @@ public class FamilyTreeService {
     @Transactional
     public Person createPerson(String name, Integer gender) {
         Person p = new Person();
-        p.setName(name);
+        p.setName(validateAndNormalizeName(name));
         p.setLevel(0);
         p.setGender(gender != null ? String.valueOf(gender) : null);
 
@@ -253,3 +264,4 @@ public class FamilyTreeService {
         return "未知关系";
     }
 }
+
