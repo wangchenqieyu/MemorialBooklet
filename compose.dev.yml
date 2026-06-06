@@ -1,0 +1,33 @@
+services:
+  app:
+    profiles:
+      - prod
+
+  app-dev:
+    image: maven:3.9.11-eclipse-temurin-21
+    container_name: memorial_booklet_app
+    working_dir: /workspace
+    command: mvn -DskipTests spring-boot:run
+    depends_on:
+      - mysql-docker
+      - ipfs-node
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
+      SERVER_PORT: ${APP_PORT:-8081}
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql-docker:3306/${MYSQL_DATABASE:-family_tree}?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_APP_USER:-root}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_APP_PASSWORD:-123456}
+      CONFLUX_RPC_URL: ${CONFLUX_RPC_URL:-https://evmtestnet.confluxrpc.com}
+      CONFLUX_PRIVATE_KEY: ${CONFLUX_PRIVATE_KEY:-}
+      CONFLUX_CONTRACT_ADDRESS: ${CONFLUX_CONTRACT_ADDRESS:-}
+      IPFS_MULTI_ADDRESS: ${IPFS_MULTI_ADDRESS:-/dns4/ipfs-node/tcp/5001}
+    ports:
+      - "${APP_PORT:-8081}:8081"
+    volumes:
+      - .:/workspace
+      - maven_cache:/root/.m2
+    networks:
+      - family-net
+
+volumes:
+  maven_cache:

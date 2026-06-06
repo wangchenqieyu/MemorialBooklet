@@ -1,6 +1,28 @@
 # MemorialBooklet
 As long as you haven't forgotten, they have never left. Your beautiful memories, we will protect together and forever
 
+## Development (fast iteration, no image rebuild per code change)
+
+Use the dev overlay to start `app-dev` (Maven runtime) while MySQL/IPFS still come from `docker-compose.yml`:
+
+```bash
+cp .env.example .env
+SPRING_PROFILES_ACTIVE=dev docker-compose -f docker-compose.yml -f compose.dev.yml up -d app-dev mysql-docker ipfs-node
+docker-compose -f docker-compose.yml -f compose.dev.yml logs -f app-dev
+```
+
+After Java code changes, restart only app (no image rebuild):
+
+```bash
+docker-compose -f docker-compose.yml -f compose.dev.yml restart app-dev
+```
+
+Stop dev stack:
+
+```bash
+docker-compose -f docker-compose.yml -f compose.dev.yml down
+```
+
 ## Deployment (Windows ECS + Docker Compose)
 
 ### Local/Server first-time run

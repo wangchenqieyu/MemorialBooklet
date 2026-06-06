@@ -541,6 +541,8 @@ jobs:
       - name: Build app image only when required
         if: steps.app_build_decision.outputs.rebuild == 'true'
         shell: bash
+        env:
+          COMPOSE_BAKE: 'false'
         run: |
           set -euo pipefail
 
@@ -551,7 +553,7 @@ jobs:
           fi
 
           echo "Building app image (${APP_LOCAL_IMAGE}) because: ${{ steps.app_build_decision.outputs.reason }}"
-          $COMPOSE_CMD --env-file .env build app
+          time $COMPOSE_CMD --env-file .env build app
 
       - name: Deploy with docker compose
         shell: bash
